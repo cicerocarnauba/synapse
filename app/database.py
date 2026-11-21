@@ -70,8 +70,22 @@ CREATE TABLE IF NOT EXISTS notificacoes (
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS conversas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titulo VARCHAR(160) NOT NULL DEFAULT 'Nova conversa',
+    data_dia DATE NOT NULL,
+    criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS configuracoes_app (
+    chave VARCHAR(80) PRIMARY KEY,
+    valor TEXT NOT NULL,
+    atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS historico_interacoes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversa_id INTEGER NULL REFERENCES conversas(id) ON DELETE CASCADE,
     mensagem_usuario TEXT NOT NULL,
     acoes_executadas_json TEXT NOT NULL,
     resposta_assistente TEXT NOT NULL,
@@ -110,6 +124,10 @@ class Database:
     def init_db(self, seed_default_habits: bool = True) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            # Migração leve para bancos existentes sem a coluna conversa_id
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(historico_interacoes)").fetchall()}
+            if "conversa_id" not in cols:
+                conn.execute("ALTER TABLE historico_interacoes ADD COLUMN conversa_id INTEGER NULL")
             if seed_default_habits:
                 for nome, meta, unidade, horario in DEFAULT_HABITS:
                     conn.execute(

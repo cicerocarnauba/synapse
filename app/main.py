@@ -16,9 +16,11 @@ from app.database import Database
 from app.schemas import (
     CheckinSaudeCreate,
     EventoCreate,
+    GeminiConfigRequest,
     HabitoCreate,
     InboxRequest,
     InboxResponse,
+    ModelSelectRequest,
     NotificacaoCreate,
     TarefaCreate,
     TransacaoCreate,
@@ -81,14 +83,52 @@ def create_app(db_path: str | None = None, settings: Settings | None = None) -> 
     def health() -> dict[str, Any]:
         return {
             "status": "ok",
-            "ia_ativa": bool(app_settings.gemini_api_key),
+            "ia_ativa": bool(orchestrator.obter_chave_gemini()),
+            "modelo_ia": orchestrator.obter_modelo_gemini(),
             "google_calendar_ativo": app_settings.google_calendar_enabled,
             "timezone": app_settings.timezone_name,
         }
 
+    @app.post("/api/v1/config/ia")
+    def configurar_ia(payload: GeminiConfigRequest) -> dict[str, Any]:
+        try:
+            return orchestrator.configurar_gemini(api_key=payload.api_key, model=payload.model)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Não foi possível validar a chave: {exc}") from exc
+
+    @app.get("/api/v1/config/ia/modelos")
+    def listar_modelos_ia() -> dict[str, Any]:
+        try:
+            modelos = orchestrator.listar_modelos_disponiveis()
+            return {"modelos": modelos, "modelo_atual": orchestrator.obter_modelo_gemini()}
+        except Exception:
+            return {"modelos": [], "modelo_atual": orchestrator.obter_modelo_gemini()}
+
+    @app.patch("/api/v1/config/ia/modelo")
+    def selecionar_modelo_ia(payload: ModelSelectRequest) -> dict[str, Any]:
+        return orchestrator.atualizar_modelo_gemini(payload.model)
+
     @app.post("/api/v1/inbox", response_model=InboxResponse)
     def inbox(payload: InboxRequest) -> InboxResponse:
-        return orchestrator.processar_mensagem(payload.mensagem)
+        return orchestrator.processar_mensagem(payload.mensagem, conversa_id=payload.conversa_id)
+
+    @app.get("/api/v1/conversas")
+    def listar_conversas() -> list[dict[str, Any]]:
+        return orchestrator.listar_conversas()
+
+    @app.post("/api/v1/conversas", status_code=201)
+    def criar_conversa() -> dict[str, Any]:
+        return orchestrator.criar_conversa()
+
+    @app.get("/api/v1/conversas/{conversa_id}/mensagens")
+    def listar_mensagens(conversa_id: int) -> list[dict[str, Any]]:
+        return orchestrator.listar_mensagens_conversa(conversa_id)
+
+    @app.delete("/api/v1/conversas/{conversa_id}")
+    def excluir_conversa(conversa_id: int) -> dict[str, Any]:
+        if not orchestrator.excluir_conversa(conversa_id):
+            raise HTTPException(status_code=404, detail="Conversa não encontrada.")
+        return {"excluida": True, "id": conversa_id}
 
     @app.get("/api/v1/briefing")
     def obter_briefing() -> dict[str, Any]:

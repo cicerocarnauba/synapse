@@ -38,7 +38,7 @@ def get_settings() -> Settings:
     default_db = str(BASE_DIR / "synapse.db")
     return Settings(
         gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest").strip(),
         database_path=os.getenv("DATABASE_PATH", default_db).strip(),
         timezone_name=os.getenv("TIMEZONE", "America/Fortaleza").strip(),
         google_calendar_enabled=os.getenv("GOOGLE_CALENDAR_ENABLED", "false").lower() == "true",

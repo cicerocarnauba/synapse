@@ -1,12 +1,13 @@
 """Orquestrador central do Synapse (RF01): Gemini Function Calling + Fallback Determinístico."""
 
-from __future__ import annotations
-
 import json
+import logging
 import re
 import time
 from datetime import timedelta
-from typing import Any
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from app.config import Settings, get_settings
 from app.database import Database
@@ -55,29 +56,208 @@ class SynapseOrchestrator:
         self.briefing = briefing
         self.settings = settings or get_settings()
 
-    def processar_mensagem(self, mensagem: str) -> InboxResponse:
+    def obter_chave_gemini(self) -> str:
+        """Prioriza chave salva em Ajustes (SQL) e faz fallback para .env."""
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT valor FROM configuracoes_app WHERE chave = 'gemini_api_key'"
+            ).fetchone()
+            if row and row["valor"].strip():
+                return str(row["valor"]).strip()
+        return self.settings.gemini_api_key
+
+    def obter_modelo_gemini(self) -> str:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT valor FROM configuracoes_app WHERE chave = 'gemini_model'"
+            ).fetchone()
+            if row and row["valor"].strip():
+                return str(row["valor"]).strip()
+        return self.settings.gemini_model
+
+    def listar_modelos_disponiveis(self, api_key: str | None = None) -> list[str]:
+        """Consulta dinamicamente a API para listar modelos reais habilitados na chave."""
+        chave = (api_key if api_key is not None else self.obter_chave_gemini()).strip()
+        if not chave:
+            return []
+
+        from google import genai
+
+        client = genai.Client(api_key=chave)
+        modelos: list[str] = []
+        for m in client.models.list():
+            nome = (getattr(m, "name", "") or "").replace("models/", "")
+            acoes = getattr(m, "supported_actions", None) or []
+            if nome.startswith("gemini") and (not acoes or "generateContent" in acoes):
+                modelos.append(nome)
+        return sorted(set(modelos), reverse=True)
+
+    def configurar_gemini(self, api_key: str, model: str | None = None) -> dict[str, Any]:
+        limpa = api_key.strip()
+        if not limpa:
+            with self.db.connect() as conn:
+                conn.execute("DELETE FROM configuracoes_app WHERE chave IN ('gemini_api_key', 'gemini_model')")
+            return {"ia_ativa": False, "modelo": "", "modelos_disponiveis": []}
+
+        modelos = self.listar_modelos_disponiveis(limpa)
+        if not modelos:
+            raise ValueError("Chave de API inválida ou nenhum modelo compatível encontrado.")
+
+        modelo_escolhido = (model or "").strip()
+        if not modelo_escolhido or modelo_escolhido not in modelos:
+            preferidos = ("gemini-flash-lite-latest", "gemini-flash-latest", "gemini-pro-latest")
+            modelo_escolhido = next((p for p in preferidos if p in modelos), modelos[0])
+
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO configuracoes_app (chave, valor, atualizado_em)
+                VALUES ('gemini_api_key', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, atualizado_em = CURRENT_TIMESTAMP
+                """,
+                (limpa,),
+            )
+            conn.execute(
+                """
+                INSERT INTO configuracoes_app (chave, valor, atualizado_em)
+                VALUES ('gemini_model', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, atualizado_em = CURRENT_TIMESTAMP
+                """,
+                (modelo_escolhido,),
+            )
+        return {
+            "ia_ativa": True,
+            "modelo": modelo_escolhido,
+            "modelos_disponiveis": modelos,
+        }
+
+    def atualizar_modelo_gemini(self, model: str) -> dict[str, Any]:
+        modelo = model.strip()
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO configuracoes_app (chave, valor, atualizado_em)
+                VALUES ('gemini_model', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, atualizado_em = CURRENT_TIMESTAMP
+                """,
+                (modelo,),
+            )
+        return {"modelo": modelo}
+
+    def processar_mensagem(self, mensagem: str, conversa_id: int | None = None) -> InboxResponse:
         inicio_ms = time.perf_counter()
         acoes: list[AcaoExecutada] = []
         usou_ia = False
 
-        if self.settings.gemini_api_key:
+        cid = self._garantir_conversa(conversa_id, mensagem)
+        chave_gemini = self.obter_chave_gemini()
+
+        if chave_gemini:
             try:
-                resposta = self._executar_com_gemini(mensagem, acoes)
+                resposta = self._executar_com_gemini(mensagem, acoes, chave_gemini)
                 usou_ia = True
-            except Exception:
-                resposta = self._executar_fallback_deterministico(mensagem, acoes)
+            except Exception as exc:
+                logger.warning("Falha ao chamar Gemini (%s).", exc)
+                if acoes:
+                    # As ferramentas já foram executadas com sucesso pela IA; não duplicar no fallback!
+                    usou_ia = True
+                    total = len(acoes)
+                    plural = "ação" if total == 1 else "ações"
+                    resposta = f"Pronto! Executei {total} {plural} e atualizei o seu painel do dia."
+                else:
+                    resposta = self._executar_fallback_deterministico(mensagem, acoes)
         else:
             resposta = self._executar_fallback_deterministico(mensagem, acoes)
 
         latencia_ms = int((time.perf_counter() - inicio_ms) * 1000)
-        self._registrar_auditoria(mensagem, acoes, resposta, latencia_ms)
+        self._registrar_auditoria(cid, mensagem, acoes, resposta, latencia_ms)
 
         return InboxResponse(
+            conversa_id=cid,
             resposta=resposta,
             acoes=acoes,
             usou_ia=usou_ia,
             latencia_ms=latencia_ms,
         )
+
+    def criar_conversa(self, titulo: str = "Nova conversa") -> dict[str, Any]:
+        hoje = self.settings.now_local().date().isoformat()
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO conversas (titulo, data_dia) VALUES (?, ?)",
+                (titulo.strip()[:160], hoje),
+            )
+            row = conn.execute("SELECT * FROM conversas WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            return dict(row)
+
+    def listar_conversas(self) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.id,
+                    c.titulo,
+                    c.data_dia,
+                    c.criado_em,
+                    COUNT(h.id) AS total_mensagens
+                FROM conversas c
+                LEFT JOIN historico_interacoes h ON h.conversa_id = c.id
+                GROUP BY c.id
+                ORDER BY c.data_dia DESC, c.id DESC
+                LIMIT 50
+                """
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def excluir_conversa(self, conversa_id: int) -> bool:
+        with self.db.connect() as conn:
+            conn.execute("DELETE FROM historico_interacoes WHERE conversa_id = ?", (conversa_id,))
+            cursor = conn.execute("DELETE FROM conversas WHERE id = ?", (conversa_id,))
+            return cursor.rowcount > 0
+
+    def listar_mensagens_conversa(self, conversa_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, conversa_id, mensagem_usuario, acoes_executadas_json, resposta_assistente, latencia_ms, criado_em
+                FROM historico_interacoes
+                WHERE conversa_id = ?
+                ORDER BY id ASC
+                """,
+                (conversa_id,),
+            ).fetchall()
+            resultado: list[dict[str, Any]] = []
+            for r in rows:
+                item = dict(r)
+                item["acoes"] = json.loads(item.pop("acoes_executadas_json") or "[]")
+                resultado.append(item)
+            return resultado
+
+    def _garantir_conversa(self, conversa_id: int | None, primeira_mensagem: str) -> int:
+        titulo_auto = primeira_mensagem.strip()[:60]
+        if len(primeira_mensagem.strip()) > 60:
+            titulo_auto += "..."
+
+        with self.db.connect() as conn:
+            if conversa_id is not None:
+                existente = conn.execute(
+                    "SELECT id, titulo FROM conversas WHERE id = ?",
+                    (conversa_id,),
+                ).fetchone()
+                if existente:
+                    if existente["titulo"] == "Nova conversa":
+                        conn.execute(
+                            "UPDATE conversas SET titulo = ? WHERE id = ?",
+                            (titulo_auto, conversa_id),
+                        )
+                    return int(existente["id"])
+
+            hoje = self.settings.now_local().date().isoformat()
+            cursor = conn.execute(
+                "INSERT INTO conversas (titulo, data_dia) VALUES (?, ?)",
+                (titulo_auto, hoje),
+            )
+            return int(cursor.lastrowid)
 
     def _construir_ferramentas(self, acoes: list[AcaoExecutada]) -> list[Any]:
         """Cria funções Python tipadas para Function Calling com validação Pydantic (RN01)."""
@@ -86,18 +266,20 @@ class SynapseOrchestrator:
             tipo: str,
             valor: float,
             descricao: str,
-            categoria: str = "OUTROS",
-            data_transacao: str | None = None,
+            categoria: str,
+            data_transacao: str,
         ) -> dict[str, Any]:
             """Registra uma DESPESA ou RECEITA financeira no banco SQL.
-            Categorias válidas: ALIMENTACAO, TRANSPORTE, MORADIA, SAUDE, LAZER, ESTUDOS, SALARIO, OUTROS.
+            tipo: DESPESA ou RECEITA.
+            categoria: ALIMENTACAO, TRANSPORTE, MORADIA, SAUDE, LAZER, ESTUDOS, SALARIO ou OUTROS.
+            data_transacao: data YYYY-MM-DD ou string vazia para hoje.
             """
             payload = TransacaoCreate(
                 tipo=TipoTransacao(tipo.upper()),
                 valor=valor,
-                categoria=CategoriaTransacao(categoria.upper()),
+                categoria=CategoriaTransacao((categoria or "OUTROS").upper()),
                 descricao=descricao,
-                data_transacao=data_transacao,
+                data_transacao=data_transacao.strip() or None,
             )
             dados = self.financas.registrar_transacao(payload)
             acoes.append(
@@ -112,14 +294,17 @@ class SynapseOrchestrator:
 
         def criar_tarefa(
             titulo: str,
-            prioridade: str = "MEDIA",
-            prazo: str | None = None,
+            prioridade: str,
+            prazo: str,
         ) -> dict[str, Any]:
-            """Cria uma tarefa rápida. Prioridades: BAIXA, MEDIA, ALTA. Prazo opcional em ISO 8601."""
+            """Cria uma tarefa rápida.
+            prioridade: BAIXA, MEDIA ou ALTA.
+            prazo: timestamp ISO 8601 ou string vazia se não houver prazo.
+            """
             payload = TarefaCreate(
                 titulo=titulo,
-                prioridade=PrioridadeTarefa(prioridade.upper()),
-                prazo=prazo,
+                prioridade=PrioridadeTarefa((prioridade or "MEDIA").upper()),
+                prazo=prazo.strip() or None,
             )
             dados = self.tarefas.criar_tarefa(payload)
             acoes.append(
@@ -136,14 +321,16 @@ class SynapseOrchestrator:
             titulo: str,
             inicio_iso: str,
             fim_iso: str,
-            descricao: str = "",
+            descricao: str,
         ) -> dict[str, Any]:
-            """Agenda compromisso no banco SQL e tenta sincronizar com o Google Calendar."""
+            """Agenda compromisso no banco SQL e tenta sincronizar com o Google Calendar.
+            descricao: detalhes opcionais ou string vazia.
+            """
             payload = EventoCreate(
                 titulo=titulo,
                 inicio=inicio_iso,
                 fim=fim_iso,
-                descricao=descricao,
+                descricao=descricao or "",
             )
             dados = self.agenda.agendar_evento(payload)
             acoes.append(
@@ -158,14 +345,14 @@ class SynapseOrchestrator:
 
         def registrar_checkin_saude(
             nome_habito: str,
-            quantidade: float = 1.0,
-            observacao: str = "",
+            quantidade: float,
+            observacao: str,
         ) -> dict[str, Any]:
             """Registra check-in diário de saúde (ex.: nome_habito='Agua' quantidade=500; 'Treino' quantidade=1; 'Almoco' quantidade=1)."""
             payload = CheckinSaudeCreate(
                 nome_habito=nome_habito,
                 quantidade=quantidade,
-                observacao=observacao,
+                observacao=observacao or "",
             )
             dados = self.saude.registrar_checkin(payload)
             prog = dados.get("progresso_atual") or {}
@@ -183,14 +370,14 @@ class SynapseOrchestrator:
             nome: str,
             meta_diaria: float,
             unidade: str,
-            horario_lembrete: str | None = None,
+            horario_lembrete: str,
         ) -> dict[str, Any]:
-            """Cria ou atualiza uma meta diária de saúde (ex.: Agua 2500 ml, Treino 1 sessao 18:00)."""
+            """Cria ou atualiza meta diária de saúde (ex.: Agua 2500 ml 10:00). horario_lembrete: HH:MM ou string vazia."""
             payload = HabitoCreate(
                 nome=nome,
                 meta_diaria=meta_diaria,
                 unidade=unidade,
-                horario_lembrete=horario_lembrete,
+                horario_lembrete=horario_lembrete.strip() or None,
             )
             dados = self.saude.criar_ou_atualizar_habito(payload)
             acoes.append(
@@ -207,11 +394,11 @@ class SynapseOrchestrator:
             titulo: str,
             mensagem: str,
             agendado_para_iso: str,
-            origem: str = "MANUAL",
+            origem: str,
         ) -> dict[str, Any]:
-            """Agenda um lembrete/notificação na fila do Synapse."""
+            """Agenda um lembrete/notificação na fila do Synapse. origem: AGENDA, TAREFA, SAUDE ou MANUAL."""
             payload = NotificacaoCreate(
-                origem=OrigemNotificacao(origem.upper()),
+                origem=OrigemNotificacao((origem or "MANUAL").upper()),
                 titulo=titulo,
                 mensagem=mensagem,
                 agendado_para=agendado_para_iso,
@@ -250,7 +437,7 @@ class SynapseOrchestrator:
             consultar_briefing,
         ]
 
-    def _executar_com_gemini(self, mensagem: str, acoes: list[AcaoExecutada]) -> str:
+    def _executar_com_gemini(self, mensagem: str, acoes: list[AcaoExecutada], api_key: str) -> str:
         from google import genai
         from google.genai import types
 
@@ -259,21 +446,37 @@ class SynapseOrchestrator:
             "Você é o Synapse, um assistente pessoal orquestrador em português do Brasil. "
             f"Data e hora atual no fuso {self.settings.timezone_name}: {agora.isoformat(timespec='seconds')}. "
             "Analise a mensagem do usuário e acione UMA OU MAIS ferramentas apropriadas (Finanças, Tarefas, Agenda, Saúde, Notificações ou Briefing). "
+            "Se a mensagem for apenas uma saudação ou conversa casual sem ação prática, responda naturalmente sem chamar ferramentas. "
             "Converta expressões temporais relativas (hoje, amanhã, às 19h) para ISO 8601 usando a data atual. "
             "Seja conciso, objetivo e sempre confirme claramente o que foi registrado."
         )
 
-        client = genai.Client(api_key=self.settings.gemini_api_key)
+        client = genai.Client(api_key=api_key)
         tools = self._construir_ferramentas(acoes)
-        response = client.models.generate_content(
-            model=self.settings.gemini_model,
-            contents=mensagem,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                tools=tools,
-                temperature=0.2,
-            ),
-        )
+        modelo = self.obter_modelo_gemini()
+
+        # Desabilita thinking longo para respostas de baixa latência em chat/tool-calling
+        config_kwargs: dict[str, Any] = {
+            "system_instruction": system_instruction,
+            "tools": tools,
+            "temperature": 0.2,
+        }
+        try:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            response = client.models.generate_content(
+                model=modelo,
+                contents=mensagem,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+        except Exception:
+            if acoes:
+                raise
+            config_kwargs.pop("thinking_config", None)
+            response = client.models.generate_content(
+                model=modelo,
+                contents=mensagem,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
         return (response.text or "Ações processadas com sucesso.").strip()
 
     def _executar_fallback_deterministico(self, mensagem: str, acoes: list[AcaoExecutada]) -> str:
@@ -300,6 +503,7 @@ class SynapseOrchestrator:
                 valor=valor,
                 descricao=descricao,
                 categoria=categoria,
+                data_transacao="",
             )
 
         # 2. Saúde — Água
@@ -346,18 +550,40 @@ class SynapseOrchestrator:
                 )
             else:
                 prioridade = "ALTA" if any(p in lower for p in ("urgente", "hoje", "blip", "importante")) else "MEDIA"
-                tools["criar_tarefa"](titulo=texto[:140], prioridade=prioridade)
+                tools["criar_tarefa"](titulo=texto[:140], prioridade=prioridade, prazo="")
         elif any(p in lower for p in ("tarefa:", "fazer ", "preciso ", "enviar ", "estudar ")):
             prioridade = "ALTA" if any(p in lower for p in ("urgente", "hoje", "importante")) else "MEDIA"
-            tools["criar_tarefa"](titulo=texto[:140], prioridade=prioridade)
+            tools["criar_tarefa"](titulo=texto[:140], prioridade=prioridade, prazo="")
 
         # 6. Consulta de Resumo / Briefing
         if any(p in lower for p in ("resumo", "briefing", "como está meu dia", "quanto gastei", "saldo")):
             tools["consultar_briefing"]()
 
-        # Fallback final: se nada casou, salva como tarefa rápida para não perder a captura
+        # Sem ação identificada: responder conversacionalmente SEM sujar o banco com tarefa falsa
         if not acoes:
-            tools["criar_tarefa"](titulo=texto[:140], prioridade="MEDIA")
+            saudacoes = ("oi", "olá", "ola", "bom dia", "boa tarde", "boa noite", "e ai", "e aí", "tudo bem", "opa")
+            agradecimentos = ("obrigado", "obrigada", "valeu", "vlw", "show", "top", "perfeito", "ok")
+            limpo = re.sub(r"[!?.,]+", "", lower).strip()
+            if limpo in saudacoes or any(limpo.startswith(s + " ") for s in saudacoes):
+                return (
+                    "Oi! Tudo pronto por aqui. Me diga o que quer organizar hoje "
+                    "(gastos, compromissos na agenda, tarefas, água, treino ou um resumo do seu dia)."
+                )
+            if limpo in agradecimentos:
+                return "Por nada! Se precisar registrar mais alguma coisa ou consultar seu dia, é só mandar."
+            if any(p in lower for p in ("ajuda", "o que você faz", "o que voce faz", "como funciona")):
+                return (
+                    "Posso organizar sua rotina em 5 áreas:\n"
+                    "• Finanças (ex.: 'Gastei 35 no almoço')\n"
+                    "• Agenda (ex.: 'Marca revisão amanhã às 19h')\n"
+                    "• Tarefas (ex.: 'Me lembra de enviar o currículo hoje')\n"
+                    "• Saúde (ex.: 'Bebi 500ml de água' ou 'Fiz o treino')\n"
+                    "• Resumo do dia (ex.: 'Como está meu resumo?')"
+                )
+            return (
+                "Não identifiquei nenhuma ação para registrar nessa mensagem. "
+                "Tente algo como um gasto, compromisso, tarefa, check-in de água/treino ou peça o resumo do dia."
+            )
 
         total = len(acoes)
         plural = "ação" if total == 1 else "ações"
@@ -382,6 +608,7 @@ class SynapseOrchestrator:
 
     def _registrar_auditoria(
         self,
+        conversa_id: int,
         mensagem: str,
         acoes: list[AcaoExecutada],
         resposta: str,
@@ -391,8 +618,8 @@ class SynapseOrchestrator:
         with self.db.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO historico_interacoes (mensagem_usuario, acoes_executadas_json, resposta_assistente, latencia_ms)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO historico_interacoes (conversa_id, mensagem_usuario, acoes_executadas_json, resposta_assistente, latencia_ms)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (mensagem, acoes_json, resposta, latencia_ms),
+                (conversa_id, mensagem, acoes_json, resposta, latencia_ms),
             )

@@ -98,6 +98,7 @@ class NotificacaoCreate(BaseModel):
 
 class InboxRequest(BaseModel):
     mensagem: str = Field(..., min_length=1, max_length=2000)
+    conversa_id: int | None = None
 
 
 class AcaoExecutada(BaseModel):
@@ -108,7 +109,17 @@ class AcaoExecutada(BaseModel):
 
 
 class InboxResponse(BaseModel):
+    conversa_id: int
     resposta: str
     acoes: list[AcaoExecutada]
     usou_ia: bool
     latencia_ms: int
+
+
+class GeminiConfigRequest(BaseModel):
+    api_key: str = Field(default="", description="Chave API (vazio para desconectar)")
+    model: str | None = Field(default=None, max_length=80)
+
+
+class ModelSelectRequest(BaseModel):
+    model: str = Field(..., min_length=1, max_length=80)

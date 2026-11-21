@@ -119,3 +119,41 @@ def test_validacao_pydantic_rejeita_valor_negativo(tmp_path: Path) -> None:
         json={"tipo": "DESPESA", "valor": -10, "categoria": "OUTROS", "descricao": "Inválido"},
     )
     assert resp.status_code == 422
+
+
+def test_historico_conversas_por_dia_e_nova_conversa(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    r1 = client.post("/api/v1/inbox", json={"mensagem": "Bebi 500ml de água"}).json()
+    cid = r1["conversa_id"]
+    assert cid > 0
+
+    r2 = client.post(
+        "/api/v1/inbox",
+        json={"mensagem": "Gastei 20 no café", "conversa_id": cid},
+    ).json()
+    assert r2["conversa_id"] == cid
+
+    conversas = client.get("/api/v1/conversas").json()
+    assert len(conversas) == 1
+    assert conversas[0]["total_mensagens"] == 2
+    assert "data_dia" in conversas[0]
+
+    mensagens = client.get(f"/api/v1/conversas/{cid}/mensagens").json()
+    assert len(mensagens) == 2
+    assert mensagens[0]["mensagem_usuario"] == "Bebi 500ml de água"
+
+    del_resp = client.delete(f"/api/v1/conversas/{cid}")
+    assert del_resp.status_code == 200
+    assert client.get("/api/v1/conversas").json() == []
+
+
+def test_saudacao_nao_cria_tarefa_nem_suja_banco(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    resp = client.post("/api/v1/inbox", json={"mensagem": "Oi"}).json()
+    assert resp["acoes"] == []
+    assert "Oi!" in resp["resposta"]
+    assert client.get("/api/v1/tarefas").json() == []
+
+
