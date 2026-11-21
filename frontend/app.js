@@ -9,6 +9,26 @@ const historyBackdrop = document.getElementById("history-sheet-backdrop");
 const historyList = document.getElementById("history-list");
 
 let conversaAtualId = null;
+let finMesAtual = new Date().toISOString().slice(0, 7);
+let finTipoFiltro = "";
+let finCategoriaFiltro = "";
+let categoriasCache = [];
+let transacoesCache = [];
+let txConversaOrigemId = null;
+let eventosCache = [];
+let tarefasCache = [];
+let habitosCache = [];
+let taskStatusFiltro = "PENDENTE";
+let taskConversaOrigemId = null;
+let eventConversaOrigemId = null;
+let calAno = new Date().getFullYear();
+let calMes = new Date().getMonth(); // 0-11
+let calDiaSelecionado = null; // YYYY-MM-DD ou null (todos)
+
+const MESES_PT = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+];
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -278,63 +298,315 @@ async function carregarStatus() {
   }
 }
 
-async function carregarBriefing() {
-  const [briefResp, transResp] = await Promise.all([
-    fetch("/api/v1/briefing"),
-    fetch("/api/v1/financas/transacoes?limite=10"),
+async function carregarFinancas() {
+  const params = new URLSearchParams({ mes: finMesAtual, limite: "50" });
+  if (finTipoFiltro) params.set("tipo", finTipoFiltro);
+  if (finCategoriaFiltro) params.set("categoria", finCategoriaFiltro);
+
+  const [resumoResp, transResp, catsResp] = await Promise.all([
+    fetch(`/api/v1/financas/resumo?mes=${encodeURIComponent(finMesAtual)}`),
+    fetch(`/api/v1/financas/transacoes?${params.toString()}`),
+    fetch("/api/v1/financas/categorias"),
   ]);
+
+  if (catsResp.ok) {
+    categoriasCache = await catsResp.json();
+    preencherSelectCategorias();
+  }
+
+  if (resumoResp.ok) {
+    const fin = await resumoResp.json();
+    document.getElementById("financas-periodo").textContent = fin.periodo;
+    document.getElementById("fin-receitas").textContent = brl.format(fin.total_receitas);
+    document.getElementById("fin-despesas").textContent = brl.format(fin.total_despesas);
+    document.getElementById("fin-saldo").textContent = brl.format(fin.saldo);
+
+    const clearCatBtn = document.getElementById("clear-cat-filter-btn");
+    if (clearCatBtn) clearCatBtn.classList.toggle("hidden", !finCategoriaFiltro);
+
+    const catsEl = document.getElementById("financas-categorias");
+    catsEl.innerHTML = !fin.despesas_por_categoria.length
+      ? `<p class="empty-state">Sem despesas neste mês.</p>`
+      : fin.despesas_por_categoria
+          .map(
+            (c) => `
+            <button type="button" class="cat-bar-item ${finCategoriaFiltro === c.categoria ? "active" : ""}" data-filter-cat="${escapeHtml(c.categoria)}">
+              <div class="cat-bar-head">
+                <span class="cat-label-wrap">
+                  <span class="cat-dot" style="background: ${escapeHtml(c.cor || "#615d59")}"></span>
+                  <span>${escapeHtml(c.categoria)}</span>
+                </span>
+                <span class="num"><strong>${brl.format(c.total)}</strong> · ${c.percentual}%</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill" style="width: ${c.percentual}%; background: ${escapeHtml(c.cor || "#0075de")}"></div>
+              </div>
+            </button>`
+          )
+          .join("");
+  }
+
+  if (transResp.ok) {
+    transacoesCache = await transResp.json();
+    const transEl = document.getElementById("transacoes-list");
+    transEl.innerHTML = !transacoesCache.length
+      ? `<p class="empty-state">Nenhum lançamento encontrado.</p>`
+      : transacoesCache
+          .map(
+            (tr) => `
+            <button type="button" class="row-card tx-clickable" data-tx-id="${tr.id}">
+              <div>
+                <p class="row-title">${escapeHtml(tr.descricao)}</p>
+                <div class="tx-meta-line">
+                  <span class="cat-dot" style="background: ${escapeHtml(tr.categoria_cor || "#615d59")}"></span>
+                  <span>${escapeHtml(tr.categoria)} · ${escapeHtml(tr.data_transacao)}</span>
+                  ${tr.conversa_id ? `<span class="chat-origin-tag">Chat</span>` : ""}
+                </div>
+              </div>
+              <strong class="num ${tr.tipo === "RECEITA" ? "positive" : "negative"}">
+                ${tr.tipo === "RECEITA" ? "+" : "-"}${brl.format(tr.valor)}
+              </strong>
+            </button>`
+          )
+          .join("");
+  }
+}
+
+function preencherSelectCategorias(selecionada = "OUTROS") {
+  const select = document.getElementById("tx-cat-select");
+  if (!select) return;
+  select.innerHTML = categoriasCache
+    .map(
+      (c) =>
+        `<option value="${escapeHtml(c.nome)}" ${c.nome === selecionada ? "selected" : ""}>${escapeHtml(c.nome)}</option>`
+    )
+    .join("");
+}
+
+function renderListaGerenciarCategorias() {
+  const el = document.getElementById("cat-manage-list");
+  if (!el) return;
+  el.innerHTML = categoriasCache
+    .map(
+      (c) => `
+      <div class="row-card">
+        <span class="cat-label-wrap">
+          <span class="cat-dot" style="background: ${escapeHtml(c.cor)}"></span>
+          <span>${escapeHtml(c.nome)}</span>
+        </span>
+        ${
+          c.padrao
+            ? `<span class="muted">Padrão</span>`
+            : `<button type="button" class="link-action" data-del-cat="${c.id}">Excluir</button>`
+        }
+      </div>`
+    )
+    .join("");
+}
+
+function abrirSheetTransacao(tx = null) {
+  const backdrop = document.getElementById("tx-sheet-backdrop");
+  const title = document.getElementById("tx-sheet-title");
+  const goChatBtn = document.getElementById("tx-go-chat-btn");
+  const delBtn = document.getElementById("tx-delete-btn");
+
+  document.getElementById("tx-id-input").value = tx ? String(tx.id) : "";
+  document.getElementById("tx-tipo-select").value = tx ? tx.tipo : "DESPESA";
+  document.getElementById("tx-valor-input").value = tx ? String(tx.valor) : "";
+  document.getElementById("tx-desc-input").value = tx ? tx.descricao : "";
+  preencherSelectCategorias(tx ? tx.categoria : "OUTROS");
+  document.getElementById("tx-data-input").value = tx ? tx.data_transacao : dataLocalISO(0);
+
+  txConversaOrigemId = tx && tx.conversa_id ? tx.conversa_id : null;
+  title.textContent = tx ? "Editar lançamento" : "Novo lançamento";
+  goChatBtn.classList.toggle("hidden", !txConversaOrigemId);
+  delBtn.classList.toggle("hidden", !tx);
+  backdrop.classList.remove("hidden");
+}
+
+function mudarMes(delta) {
+  const [ano, mes] = finMesAtual.split("-").map(Number);
+  const d = new Date(ano, mes - 1 + delta, 1);
+  finMesAtual = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  finCategoriaFiltro = "";
+  carregarFinancas();
+}
+
+async function carregarTarefas() {
+  const resp = await fetch(`/api/v1/tarefas?status=${encodeURIComponent(taskStatusFiltro)}`);
+  if (!resp.ok) return;
+  tarefasCache = await resp.json();
+  document.getElementById("tarefas-count").textContent = String(tarefasCache.length);
+  const tarefasEl = document.getElementById("tarefas-list");
+  tarefasEl.innerHTML = !tarefasCache.length
+    ? `<p class="empty-state">${taskStatusFiltro === "PENDENTE" ? "Nenhuma tarefa pendente." : "Nenhuma tarefa concluída."}</p>`
+    : tarefasCache
+        .map(
+          (t) => `
+          <div class="task-row">
+            <input type="checkbox" data-task-toggle="${t.id}" ${t.status === "CONCLUIDA" ? "checked" : ""} />
+            <button type="button" class="tx-clickable" style="border:none;background:none;padding:0;flex:1" data-task-edit="${t.id}">
+              <span class="task-title" style="${t.status === "CONCLUIDA" ? "text-decoration:line-through;color:var(--ink-muted)" : ""}">${escapeHtml(t.titulo)}</span>
+              <div class="tx-meta-line">
+                ${t.prazo ? `<span>Prazo ${escapeHtml(String(t.prazo).slice(0, 10))}</span>` : ""}
+                ${t.conversa_id ? `<span class="chat-origin-tag">Chat</span>` : ""}
+              </div>
+            </button>
+            <span class="prio-dot ${escapeHtml(t.prioridade)}">${escapeHtml(t.prioridade)}</span>
+          </div>`
+        )
+        .join("");
+}
+
+async function carregarCheckinsHoje() {
+  const resp = await fetch("/api/v1/saude/checkins");
+  if (!resp.ok) return;
+  const checkins = await resp.json();
+  const el = document.getElementById("checkins-list");
+  if (!el) return;
+  el.innerHTML = !checkins.length
+    ? `<p class="empty-state">Nenhum registro hoje ainda.</p>`
+    : checkins
+        .map(
+          (c) => `
+          <div class="row-card">
+            <div>
+              <p class="row-title">${escapeHtml(c.habito_nome)} · +${c.quantidade} ${escapeHtml(c.unidade)}</p>
+              <div class="tx-meta-line">
+                <span class="num">${escapeHtml(String(c.registrado_em).slice(11, 16))}</span>
+                ${c.conversa_id ? `<button type="button" class="link-action" data-checkin-chat="${c.conversa_id}">Ver chat</button>` : ""}
+              </div>
+            </div>
+            <button type="button" class="link-action" data-del-checkin="${c.id}">Desfazer</button>
+          </div>`
+        )
+        .join("");
+}
+
+function renderCalendarioEAgenda() {
+  const label = document.getElementById("cal-month-label");
+  const grid = document.getElementById("cal-grid");
+  const agendaEl = document.getElementById("agenda-list");
+  const selLabel = document.getElementById("cal-selected-label");
+  const showAllBtn = document.getElementById("cal-show-all-btn");
+  if (!grid || !label) return;
+
+  label.textContent = `${MESES_PT[calMes]} ${calAno}`;
+  const hojeStr = dataLocalISO(0);
+
+  // Mapa de dias com eventos e dias com prazo de tarefas
+  const diasComEvento = new Set(eventosCache.map((ev) => String(ev.inicio).slice(0, 10)));
+  const diasComTarefa = new Set(
+    tarefasCache.filter((t) => t.prazo).map((t) => String(t.prazo).slice(0, 10))
+  );
+
+  const primeiroDiaSemana = new Date(calAno, calMes, 1).getDay();
+  const totalDias = new Date(calAno, calMes + 1, 0).getDate();
+
+  let html = "";
+  for (let i = 0; i < primeiroDiaSemana; i++) {
+    html += `<span class="cal-day is-empty"></span>`;
+  }
+  for (let dia = 1; dia <= totalDias; dia++) {
+    const iso = `${calAno}-${String(calMes + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+    const temEvento = diasComEvento.has(iso);
+    const temTarefa = diasComTarefa.has(iso);
+    const classes = ["cal-day"];
+    if (temEvento || temTarefa) classes.push("has-items");
+    if (iso === hojeStr) classes.push("is-today");
+    if (iso === calDiaSelecionado) classes.push("is-selected");
+    const dots =
+      temEvento || temTarefa
+        ? `<span class="cal-dots">${temEvento ? `<span class="cal-dot"></span>` : ""}${temTarefa ? `<span class="cal-dot task-dot"></span>` : ""}</span>`
+        : "";
+    html += `
+      <button type="button" class="${classes.join(" ")}" data-cal-day="${iso}">
+        <span>${dia}</span>
+        ${dots}
+      </button>`;
+  }
+  grid.innerHTML = html;
+
+  const filtrados = calDiaSelecionado
+    ? eventosCache.filter((ev) => String(ev.inicio).slice(0, 10) === calDiaSelecionado)
+    : eventosCache;
+  const tarefasDoDia = calDiaSelecionado
+    ? tarefasCache.filter((t) => t.prazo && String(t.prazo).slice(0, 10) === calDiaSelecionado)
+    : [];
+
+  document.getElementById("agenda-count").textContent = String(eventosCache.length);
+  if (calDiaSelecionado) {
+    const [a, m, d] = calDiaSelecionado.split("-");
+    selLabel.textContent = `Itens em ${d}/${m}/${a}`;
+    showAllBtn.classList.remove("hidden");
+  } else {
+    selLabel.textContent = "Próximos compromissos";
+    showAllBtn.classList.add("hidden");
+  }
+
+  const htmlEventos = filtrados
+    .slice(0, 12)
+    .map(
+      (ev) => `
+      <button type="button" class="row-card tx-clickable" data-event-edit="${ev.id}">
+        <div>
+          <p class="row-title">${escapeHtml(ev.titulo)}</p>
+          <div class="tx-meta-line">
+            <span class="num">${escapeHtml(ev.inicio.replace("T", " ").slice(0, 16))}</span>
+            ${ev.conversa_id ? `<span class="chat-origin-tag">Chat</span>` : ""}
+          </div>
+        </div>
+        <span class="sync-badge ${escapeHtml(ev.sync_status)}">${escapeHtml(ev.sync_status)}</span>
+      </button>`
+    )
+    .join("");
+
+  const htmlTarefasDia = tarefasDoDia
+    .map(
+      (t) => `
+      <button type="button" class="row-card tx-clickable" data-task-edit="${t.id}">
+        <div>
+          <p class="row-title">${escapeHtml(t.titulo)}</p>
+          <div class="tx-meta-line">
+            <span>Prazo de tarefa</span>
+            ${t.conversa_id ? `<span class="chat-origin-tag">Chat</span>` : ""}
+          </div>
+        </div>
+        <span class="prio-dot ${escapeHtml(t.prioridade)}">${escapeHtml(t.prioridade)}</span>
+      </button>`
+    )
+    .join("");
+
+  agendaEl.innerHTML =
+    !htmlEventos && !htmlTarefasDia
+      ? `<p class="empty-state">${calDiaSelecionado ? "Nada agendado neste dia. Toque em + Evento." : "Nenhum compromisso agendado."}</p>`
+      : htmlEventos + htmlTarefasDia;
+}
+
+async function carregarBriefing() {
+  const briefResp = await fetch("/api/v1/briefing");
   if (!briefResp.ok) return;
   const b = await briefResp.json();
-  const transacoes = transResp.ok ? await transResp.json() : [];
 
   document.getElementById("briefing-date").textContent = `Hoje · ${b.data_referencia}`;
   document.getElementById("briefing-meta").textContent = `Atualizado às ${b.hora_atual}`;
 
-  // Agenda
-  const eventos = b.proximos_eventos || [];
-  document.getElementById("agenda-count").textContent = String(eventos.length);
-  const agendaEl = document.getElementById("agenda-list");
-  agendaEl.innerHTML = !eventos.length
-    ? `<p class="empty-state">Nenhum compromisso agendado.</p>`
-    : eventos
-        .slice(0, 8)
-        .map(
-          (ev) => `
-          <div class="row-card">
-            <div>
-              <p class="row-title">${escapeHtml(ev.titulo)}</p>
-              <p class="row-sub num">${escapeHtml(ev.inicio.replace("T", " ").slice(0, 16))}</p>
-            </div>
-            <span class="sync-badge ${escapeHtml(ev.sync_status)}">${escapeHtml(ev.sync_status)}</span>
-          </div>`
-        )
-        .join("");
+  // Tarefas (carrega antes do calendário para pintar os prazos no mês!)
+  await carregarTarefas();
 
-  // Tarefas
-  const tarefas = b.tarefas_pendentes || [];
-  document.getElementById("tarefas-count").textContent = String(tarefas.length);
-  const tarefasEl = document.getElementById("tarefas-list");
-  tarefasEl.innerHTML = !tarefas.length
-    ? `<p class="empty-state">Nenhuma tarefa pendente.</p>`
-    : tarefas
-        .map(
-          (t) => `
-          <label class="task-row">
-            <input type="checkbox" data-task-id="${t.id}" />
-            <span class="task-title">${escapeHtml(t.titulo)}</span>
-            <span class="prio-dot ${escapeHtml(t.prioridade)}">${escapeHtml(t.prioridade)}</span>
-          </label>`
-        )
-        .join("");
+  // Agenda + Calendário Mensal
+  eventosCache = b.proximos_eventos || [];
+  renderCalendarioEAgenda();
 
-  // Saúde
+  // Saúde (clicável para editar hábito + histórico de check-ins)
+  habitosCache = b.saude_hoje || [];
   const saudeEl = document.getElementById("saude-list");
-  saudeEl.innerHTML = !b.saude_hoje.length
+  saudeEl.innerHTML = !habitosCache.length
     ? `<p class="empty-state">Nenhum hábito ativo.</p>`
-    : b.saude_hoje
+    : habitosCache
         .map(
           (h) => `
-          <div class="habit-row">
+          <button type="button" class="cat-bar-item" data-habit-edit="${h.id}">
             <div class="habit-top">
               <span class="habit-name">${escapeHtml(h.nome)}</span>
               <span class="habit-val num">${h.total_hoje} / ${h.meta_diaria} ${escapeHtml(h.unidade)} (${h.percentual}%)</span>
@@ -342,47 +614,14 @@ async function carregarBriefing() {
             <div class="progress-track">
               <div class="progress-fill ${h.concluido ? "done" : ""}" style="width: ${h.percentual}%"></div>
             </div>
-          </div>`
+          </button>`
         )
         .join("");
 
-  // Finanças
-  const fin = b.resumo_financeiro;
-  document.getElementById("financas-periodo").textContent = `Período ${fin.periodo}`;
-  document.getElementById("fin-receitas").textContent = brl.format(fin.total_receitas);
-  document.getElementById("fin-despesas").textContent = brl.format(fin.total_despesas);
-  document.getElementById("fin-saldo").textContent = brl.format(fin.saldo);
+  await carregarCheckinsHoje();
 
-  const catsEl = document.getElementById("financas-categorias");
-  catsEl.innerHTML = !fin.despesas_por_categoria.length
-    ? `<p class="empty-state">Sem despesas neste mês.</p>`
-    : fin.despesas_por_categoria
-        .map(
-          (c) => `
-          <div class="cat-row">
-            <span>${escapeHtml(c.categoria)}</span>
-            <strong class="num">${brl.format(c.total)}</strong>
-          </div>`
-        )
-        .join("");
-
-  const transEl = document.getElementById("transacoes-list");
-  transEl.innerHTML = !transacoes.length
-    ? `<p class="empty-state">Nenhum lançamento ainda.</p>`
-    : transacoes
-        .map(
-          (tr) => `
-          <div class="row-card">
-            <div>
-              <p class="row-title">${escapeHtml(tr.descricao)}</p>
-              <p class="row-sub">${escapeHtml(tr.categoria)} · ${escapeHtml(tr.data_transacao)}</p>
-            </div>
-            <strong class="num ${tr.tipo === "RECEITA" ? "positive" : "negative"}">
-              ${tr.tipo === "RECEITA" ? "+" : "-"}${brl.format(tr.valor)}
-            </strong>
-          </div>`
-        )
-        .join("");
+  // Finanças (carregamento completo com filtros, cores e categorias)
+  await carregarFinancas();
 
   // Notificações
   const notifs = b.notificacoes_pendentes || [];
@@ -462,11 +701,366 @@ document.querySelectorAll(".quick-tile").forEach((tile) => {
   });
 });
 
-// Concluir tarefa
+// Eventos de Finanças (mês, filtros, edição manual, categorias e ir para conversa)
+document.getElementById("fin-prev-month").addEventListener("click", () => mudarMes(-1));
+document.getElementById("fin-next-month").addEventListener("click", () => mudarMes(1));
+
+document.getElementById("fin-type-filters").addEventListener("click", (e) => {
+  const pill = e.target.closest("button[data-type]");
+  if (!pill) return;
+  finTipoFiltro = pill.dataset.type;
+  document.querySelectorAll("#fin-type-filters .filter-pill").forEach((b) =>
+    b.classList.toggle("active", b === pill)
+  );
+  carregarFinancas();
+});
+
+document.getElementById("financas-categorias").addEventListener("click", (e) => {
+  const item = e.target.closest("button[data-filter-cat]");
+  if (!item) return;
+  const cat = item.dataset.filterCat;
+  finCategoriaFiltro = finCategoriaFiltro === cat ? "" : cat;
+  carregarFinancas();
+});
+
+document.getElementById("clear-cat-filter-btn").addEventListener("click", () => {
+  finCategoriaFiltro = "";
+  carregarFinancas();
+});
+
+document.getElementById("open-new-tx-btn").addEventListener("click", () => abrirSheetTransacao(null));
+
+document.getElementById("transacoes-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-tx-id]");
+  if (!btn) return;
+  const tx = transacoesCache.find((t) => t.id === Number(btn.dataset.txId));
+  if (tx) abrirSheetTransacao(tx);
+});
+
+const txBackdrop = document.getElementById("tx-sheet-backdrop");
+document.getElementById("close-tx-sheet-btn").addEventListener("click", () => txBackdrop.classList.add("hidden"));
+txBackdrop.addEventListener("click", (e) => {
+  if (e.target === txBackdrop) txBackdrop.classList.add("hidden");
+});
+
+document.getElementById("tx-go-chat-btn").addEventListener("click", async () => {
+  if (!txConversaOrigemId) return;
+  txBackdrop.classList.add("hidden");
+  await abrirConversa(txConversaOrigemId);
+});
+
+document.getElementById("tx-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = document.getElementById("tx-id-input").value;
+  const payload = {
+    tipo: document.getElementById("tx-tipo-select").value,
+    valor: Number(document.getElementById("tx-valor-input").value),
+    descricao: document.getElementById("tx-desc-input").value.trim(),
+    categoria: document.getElementById("tx-cat-select").value,
+    data_transacao: document.getElementById("tx-data-input").value,
+  };
+
+  const url = id ? `/api/v1/financas/transacoes/${id}` : "/api/v1/financas/transacoes";
+  const method = id ? "PATCH" : "POST";
+  const resp = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    txBackdrop.classList.add("hidden");
+    await carregarFinancas();
+  }
+});
+
+document.getElementById("tx-delete-btn").addEventListener("click", async () => {
+  const id = document.getElementById("tx-id-input").value;
+  if (!id) return;
+  const resp = await fetch(`/api/v1/financas/transacoes/${id}`, { method: "DELETE" });
+  if (resp.ok) {
+    txBackdrop.classList.add("hidden");
+    await carregarFinancas();
+  }
+});
+
+const catBackdrop = document.getElementById("cat-sheet-backdrop");
+document.getElementById("open-categories-btn").addEventListener("click", async () => {
+  await carregarFinancas();
+  renderListaGerenciarCategorias();
+  catBackdrop.classList.remove("hidden");
+});
+document.getElementById("close-cat-sheet-btn").addEventListener("click", () => catBackdrop.classList.add("hidden"));
+catBackdrop.addEventListener("click", (e) => {
+  if (e.target === catBackdrop) catBackdrop.classList.add("hidden");
+});
+
+document.getElementById("cat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById("cat-name-input");
+  const colorInput = document.getElementById("cat-color-input");
+  const resp = await fetch("/api/v1/financas/categorias", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome: nameInput.value.trim(), cor: colorInput.value }),
+  });
+  if (resp.ok) {
+    nameInput.value = "";
+    await carregarFinancas();
+    renderListaGerenciarCategorias();
+  }
+});
+
+document.getElementById("cat-manage-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-del-cat]");
+  if (!btn) return;
+  const resp = await fetch(`/api/v1/financas/categorias/${btn.dataset.delCat}`, { method: "DELETE" });
+  if (resp.ok) {
+    await carregarFinancas();
+    renderListaGerenciarCategorias();
+  }
+});
+
+// --- Eventos de Hoje (Tarefas & Agenda) e Saúde ---
+const taskBackdrop = document.getElementById("task-sheet-backdrop");
+const eventBackdrop = document.getElementById("event-sheet-backdrop");
+const habitBackdrop = document.getElementById("habit-sheet-backdrop");
+
+function abrirSheetTarefa(t = null) {
+  document.getElementById("task-id-input").value = t ? String(t.id) : "";
+  document.getElementById("task-title-input").value = t ? t.titulo : "";
+  document.getElementById("task-prio-select").value = t ? t.prioridade : "MEDIA";
+  document.getElementById("task-prazo-input").value = t && t.prazo ? String(t.prazo).slice(0, 10) : "";
+  taskConversaOrigemId = t && t.conversa_id ? t.conversa_id : null;
+  document.getElementById("task-sheet-title").textContent = t ? "Editar tarefa" : "Nova tarefa";
+  document.getElementById("task-go-chat-btn").classList.toggle("hidden", !taskConversaOrigemId);
+  document.getElementById("task-delete-btn").classList.toggle("hidden", !t);
+  taskBackdrop.classList.remove("hidden");
+}
+
+function abrirSheetEvento(ev = null) {
+  const agora = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const baseDate = calDiaSelecionado || dataLocalISO(0);
+  const defaultStart = `${baseDate}T${pad(agora.getHours())}:00`;
+  const defaultEnd = `${baseDate}T${pad(Math.min(agora.getHours() + 1, 23))}:00`;
+
+  document.getElementById("event-id-input").value = ev ? String(ev.id) : "";
+  document.getElementById("event-title-input").value = ev ? ev.titulo : "";
+  document.getElementById("event-start-input").value = ev ? ev.inicio.slice(0, 16) : defaultStart;
+  document.getElementById("event-end-input").value = ev ? ev.fim.slice(0, 16) : defaultEnd;
+  document.getElementById("event-desc-input").value = ev ? ev.descricao || "" : "";
+  eventConversaOrigemId = ev && ev.conversa_id ? ev.conversa_id : null;
+  document.getElementById("event-sheet-title").textContent = ev ? "Editar compromisso" : "Novo compromisso";
+  document.getElementById("event-go-chat-btn").classList.toggle("hidden", !eventConversaOrigemId);
+  document.getElementById("event-delete-btn").classList.toggle("hidden", !ev);
+  eventBackdrop.classList.remove("hidden");
+}
+
+function abrirSheetHabito(h = null) {
+  document.getElementById("habit-id-input").value = h ? String(h.id) : "";
+  document.getElementById("habit-name-input").value = h ? h.nome : "";
+  document.getElementById("habit-meta-input").value = h ? String(h.meta_diaria) : "1";
+  document.getElementById("habit-unit-input").value = h ? h.unidade : "unidade";
+  document.getElementById("habit-time-input").value = h && h.horario_lembrete ? h.horario_lembrete : "";
+  document.getElementById("habit-sheet-title").textContent = h ? "Editar hábito" : "Novo hábito";
+  document.getElementById("habit-delete-btn").classList.toggle("hidden", !h);
+  habitBackdrop.classList.remove("hidden");
+}
+
+// Calendário Mensal (navegação e seleção de dia)
+document.getElementById("cal-prev-month").addEventListener("click", () => {
+  calMes -= 1;
+  if (calMes < 0) { calMes = 11; calAno -= 1; }
+  renderCalendarioEAgenda();
+});
+document.getElementById("cal-next-month").addEventListener("click", () => {
+  calMes += 1;
+  if (calMes > 11) { calMes = 0; calAno += 1; }
+  renderCalendarioEAgenda();
+});
+document.getElementById("cal-grid").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-cal-day]");
+  if (!btn) return;
+  const dia = btn.dataset.calDay;
+  calDiaSelecionado = calDiaSelecionado === dia ? null : dia;
+  renderCalendarioEAgenda();
+});
+document.getElementById("cal-show-all-btn").addEventListener("click", () => {
+  calDiaSelecionado = null;
+  renderCalendarioEAgenda();
+});
+
+document.getElementById("open-new-task-btn").addEventListener("click", () => abrirSheetTarefa(null));
+document.getElementById("open-new-event-btn").addEventListener("click", () => abrirSheetEvento(null));
+document.getElementById("open-new-habit-btn").addEventListener("click", () => abrirSheetHabito(null));
+
+document.getElementById("close-task-sheet-btn").addEventListener("click", () => taskBackdrop.classList.add("hidden"));
+taskBackdrop.addEventListener("click", (e) => { if (e.target === taskBackdrop) taskBackdrop.classList.add("hidden"); });
+
+document.getElementById("close-event-sheet-btn").addEventListener("click", () => eventBackdrop.classList.add("hidden"));
+eventBackdrop.addEventListener("click", (e) => { if (e.target === eventBackdrop) eventBackdrop.classList.add("hidden"); });
+
+document.getElementById("close-habit-sheet-btn").addEventListener("click", () => habitBackdrop.classList.add("hidden"));
+habitBackdrop.addEventListener("click", (e) => { if (e.target === habitBackdrop) habitBackdrop.classList.add("hidden"); });
+
+document.getElementById("task-status-filters").addEventListener("click", (e) => {
+  const pill = e.target.closest("button[data-status]");
+  if (!pill) return;
+  taskStatusFiltro = pill.dataset.status;
+  document.querySelectorAll("#task-status-filters .filter-pill").forEach((b) => b.classList.toggle("active", b === pill));
+  carregarTarefas();
+});
+
 document.getElementById("tarefas-list").addEventListener("change", async (e) => {
-  if (e.target.matches("input[data-task-id]")) {
-    await fetch(`/api/v1/tarefas/${e.target.dataset.taskId}/concluir`, { method: "PATCH" });
+  if (e.target.matches("input[data-task-toggle]")) {
+    const id = e.target.dataset.taskToggle;
+    const novoStatus = e.target.checked ? "CONCLUIDA" : "PENDENTE";
+    await fetch(`/api/v1/tarefas/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: novoStatus }),
+    });
+    await carregarTarefas();
+  }
+});
+
+document.getElementById("tarefas-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-task-edit]");
+  if (!btn) return;
+  const t = tarefasCache.find((item) => item.id === Number(btn.dataset.taskEdit));
+  if (t) abrirSheetTarefa(t);
+});
+
+document.getElementById("task-go-chat-btn").addEventListener("click", async () => {
+  if (!taskConversaOrigemId) return;
+  taskBackdrop.classList.add("hidden");
+  await abrirConversa(taskConversaOrigemId);
+});
+
+document.getElementById("task-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = document.getElementById("task-id-input").value;
+  const prazoVal = document.getElementById("task-prazo-input").value;
+  const payload = {
+    titulo: document.getElementById("task-title-input").value.trim(),
+    prioridade: document.getElementById("task-prio-select").value,
+    prazo: prazoVal || null,
+  };
+  const resp = await fetch(id ? `/api/v1/tarefas/${id}` : "/api/v1/tarefas", {
+    method: id ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    taskBackdrop.classList.add("hidden");
+    await carregarTarefas();
+  }
+});
+
+document.getElementById("task-delete-btn").addEventListener("click", async () => {
+  const id = document.getElementById("task-id-input").value;
+  if (!id) return;
+  if ((await fetch(`/api/v1/tarefas/${id}`, { method: "DELETE" })).ok) {
+    taskBackdrop.classList.add("hidden");
+    await carregarTarefas();
+  }
+});
+
+document.getElementById("agenda-list").addEventListener("click", (e) => {
+  const evBtn = e.target.closest("button[data-event-edit]");
+  if (evBtn) {
+    const ev = eventosCache.find((item) => item.id === Number(evBtn.dataset.eventEdit));
+    if (ev) abrirSheetEvento(ev);
+    return;
+  }
+  const tBtn = e.target.closest("button[data-task-edit]");
+  if (tBtn) {
+    const t = tarefasCache.find((item) => item.id === Number(tBtn.dataset.taskEdit));
+    if (t) abrirSheetTarefa(t);
+  }
+});
+
+document.getElementById("event-go-chat-btn").addEventListener("click", async () => {
+  if (!eventConversaOrigemId) return;
+  eventBackdrop.classList.add("hidden");
+  await abrirConversa(eventConversaOrigemId);
+});
+
+document.getElementById("event-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = document.getElementById("event-id-input").value;
+  const payload = {
+    titulo: document.getElementById("event-title-input").value.trim(),
+    inicio: document.getElementById("event-start-input").value + ":00",
+    fim: document.getElementById("event-end-input").value + ":00",
+    descricao: document.getElementById("event-desc-input").value.trim(),
+  };
+  const resp = await fetch(id ? `/api/v1/agenda/${id}` : "/api/v1/agenda", {
+    method: id ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    eventBackdrop.classList.add("hidden");
     await carregarBriefing();
+  }
+});
+
+document.getElementById("event-delete-btn").addEventListener("click", async () => {
+  const id = document.getElementById("event-id-input").value;
+  if (!id) return;
+  if ((await fetch(`/api/v1/agenda/${id}`, { method: "DELETE" })).ok) {
+    eventBackdrop.classList.add("hidden");
+    await carregarBriefing();
+  }
+});
+
+document.getElementById("saude-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-habit-edit]");
+  if (!btn) return;
+  const h = habitosCache.find((item) => item.id === Number(btn.dataset.habitEdit));
+  if (h) abrirSheetHabito(h);
+});
+
+document.getElementById("habit-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    nome: document.getElementById("habit-name-input").value.trim(),
+    meta_diaria: Number(document.getElementById("habit-meta-input").value),
+    unidade: document.getElementById("habit-unit-input").value.trim(),
+    horario_lembrete: document.getElementById("habit-time-input").value || null,
+  };
+  const resp = await fetch("/api/v1/saude/habitos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (resp.ok) {
+    habitBackdrop.classList.add("hidden");
+    await carregarBriefing();
+  }
+});
+
+document.getElementById("habit-delete-btn").addEventListener("click", async () => {
+  const id = document.getElementById("habit-id-input").value;
+  if (!id) return;
+  if ((await fetch(`/api/v1/saude/habitos/${id}`, { method: "DELETE" })).ok) {
+    habitBackdrop.classList.add("hidden");
+    await carregarBriefing();
+  }
+});
+
+document.getElementById("checkins-list").addEventListener("click", async (e) => {
+  const delBtn = e.target.closest("button[data-del-checkin]");
+  if (delBtn) {
+    if ((await fetch(`/api/v1/saude/checkins/${delBtn.dataset.delCheckin}`, { method: "DELETE" })).ok) {
+      await carregarBriefing();
+    }
+    return;
+  }
+  const chatBtn = e.target.closest("button[data-checkin-chat]");
+  if (chatBtn) {
+    await abrirConversa(Number(chatBtn.dataset.checkinChat));
   }
 });
 

@@ -643,6 +643,357 @@ body {
 }
 
 /* Finanças */
+/* Calendário Mensal + Lista compacta de tarefas (Aba Hoje) */
+.tasks-compact {
+  max-height: 175px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.calendar-card {
+  background: var(--canvas-soft);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cal-day {
+  appearance: none;
+  position: relative;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.cal-day:hover {
+  background: var(--canvas);
+  border-color: var(--hairline);
+}
+
+.cal-day.has-items {
+  background: var(--canvas);
+  border-color: var(--hairline);
+}
+
+.cal-day.is-today {
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.cal-day.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  font-weight: 700;
+}
+
+.cal-day.is-empty {
+  pointer-events: none;
+}
+
+.cal-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-top: 2px;
+  height: 5px;
+  align-items: center;
+}
+
+.cal-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+}
+
+.cal-dot.task-dot {
+  background: var(--accent-orange);
+}
+
+.cal-day.is-selected .cal-dot {
+  background: #ffffff;
+}
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 4px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.cal-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Finanças — Evolução interativa */
+.fin-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fin-topbar h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.month-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.month-btn {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--hairline);
+  background: var(--canvas-soft);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fin-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-primary-sm {
+  appearance: none;
+  background: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-primary-sm:hover {
+  background: var(--primary-active);
+}
+
+.btn-danger {
+  appearance: none;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid #f3c4c0;
+  background: #fef3f2;
+  color: #b42318;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-origin-chat {
+  appearance: none;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid #c5e2fc;
+  background: var(--accent-blue-soft);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.filter-pills {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--canvas-soft);
+  padding: 3px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--hairline);
+}
+
+.filter-pill {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.filter-pill.active {
+  background: var(--canvas);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.cat-bar-item {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.cat-bar-item:hover,
+.cat-bar-item.active {
+  background: var(--canvas-soft);
+  border-color: var(--hairline);
+}
+
+.cat-bar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.cat-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.cat-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.tx-clickable {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.tx-clickable:hover {
+  border-color: #d4d2cf;
+  background: #f0eeeb;
+}
+
+.tx-meta-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.chat-origin-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--accent-blue-soft);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.cat-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cat-add-row input[type="color"] {
+  width: 38px;
+  height: 38px;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  cursor: pointer;
+}
+
+.cat-add-row input[type="text"] {
+  flex: 1;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+
 .finance-summary {
   background: var(--canvas-soft);
   border: 1px solid var(--hairline);

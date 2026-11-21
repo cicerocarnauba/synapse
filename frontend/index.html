@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=4" />
 </head>
 <body>
   <div class="app-shell">
@@ -63,35 +63,67 @@
 
     <!-- Conteúdo das 5 Telas -->
     <main class="app-screens">
-      <!-- ABA 1: HOJE (AGENDA + TAREFAS) -->
+      <!-- ABA 1: HOJE (TAREFAS EM CIMA + CALENDÁRIO MENSAL EMBAIXO) -->
       <section class="screen scroll-screen" id="screen-hoje" data-title="Hoje">
-        <div class="screen-head">
-          <h2 id="briefing-date">Hoje</h2>
-          <p id="briefing-meta" class="muted">Sincronizado</p>
+        <div class="fin-topbar">
+          <div>
+            <h2 id="briefing-date">Hoje</h2>
+            <p id="briefing-meta" class="muted">Sincronizado</p>
+          </div>
+          <button type="button" class="btn-primary-sm" id="open-new-task-btn">+ Tarefa</button>
         </div>
 
+        <!-- 1. Lista compacta de Tarefas em cima -->
         <div class="list-section">
           <div class="section-row">
-            <h3>Agenda</h3>
-            <span class="pill-count num" id="agenda-count">0</span>
+            <h3>Tarefas <span class="pill-count num" id="tarefas-count">0</span></h3>
+            <div class="filter-pills" id="task-status-filters">
+              <button type="button" class="filter-pill active" data-status="PENDENTE">Pendentes</button>
+              <button type="button" class="filter-pill" data-status="CONCLUIDA">Concluídas</button>
+            </div>
           </div>
-          <div id="agenda-list" class="stack-sm"></div>
+          <div id="tarefas-list" class="stack-xs tasks-compact"></div>
         </div>
 
+        <!-- 2. Calendário Mensal + Eventos do Dia selecionado embaixo -->
         <div class="list-section">
           <div class="section-row">
-            <h3>Tarefas Pendentes</h3>
-            <span class="pill-count num" id="tarefas-count">0</span>
+            <h3>Calendário <span class="pill-count num" id="agenda-count">0</span></h3>
+            <button type="button" class="btn-utility" id="open-new-event-btn">+ Evento</button>
           </div>
-          <div id="tarefas-list" class="stack-xs"></div>
+
+          <div class="calendar-card">
+            <div class="calendar-head">
+              <button type="button" class="month-btn" id="cal-prev-month" aria-label="Mês anterior">&lsaquo;</button>
+              <strong id="cal-month-label">Novembro 2026</strong>
+              <button type="button" class="month-btn" id="cal-next-month" aria-label="Próximo mês">&rsaquo;</button>
+            </div>
+            <div class="calendar-weekdays">
+              <span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span>
+            </div>
+            <div class="calendar-grid" id="cal-grid"></div>
+            <div class="cal-legend">
+              <span><i class="cal-dot"></i> Compromisso</span>
+              <span><i class="cal-dot task-dot"></i> Prazo de tarefa</span>
+            </div>
+          </div>
+
+          <div class="section-row" style="margin-top: 4px">
+            <span class="muted" id="cal-selected-label">Compromissos do dia</span>
+            <button type="button" class="link-action hidden" id="cal-show-all-btn">Ver todos</button>
+          </div>
+          <div id="agenda-list" class="stack-xs"></div>
         </div>
       </section>
 
       <!-- ABA 2: SAÚDE & HÁBITOS -->
       <section class="screen scroll-screen" id="screen-saude" data-title="Saúde">
-        <div class="screen-head">
-          <h2>Saúde hoje</h2>
-          <p class="muted">Hidratação, treino e refeições</p>
+        <div class="fin-topbar">
+          <div>
+            <h2>Saúde hoje</h2>
+            <p class="muted">Hidratação, treino e hábitos</p>
+          </div>
+          <button type="button" class="btn-primary-sm" id="open-new-habit-btn">+ Hábito</button>
         </div>
 
         <div class="quick-actions-grid">
@@ -115,9 +147,17 @@
 
         <div class="list-section">
           <div class="section-row">
-            <h3>Progresso diário</h3>
+            <h3>Metas de hoje</h3>
+            <span class="muted">Toque para editar</span>
           </div>
-          <div id="saude-list" class="stack-md"></div>
+          <div id="saude-list" class="stack-sm"></div>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Registros de hoje</h3>
+          </div>
+          <div id="checkins-list" class="stack-xs"></div>
         </div>
       </section>
 
@@ -156,14 +196,24 @@
 
       <!-- ABA 4: FINANÇAS -->
       <section class="screen scroll-screen" id="screen-financas" data-title="Finanças">
-        <div class="screen-head">
-          <h2>Finanças</h2>
-          <p class="muted" id="financas-periodo">Mês atual</p>
+        <div class="fin-topbar">
+          <div>
+            <h2>Finanças</h2>
+            <div class="month-nav">
+              <button type="button" class="month-btn" id="fin-prev-month" aria-label="Mês anterior">&lsaquo;</button>
+              <span class="num" id="financas-periodo">2026-11</span>
+              <button type="button" class="month-btn" id="fin-next-month" aria-label="Próximo mês">&rsaquo;</button>
+            </div>
+          </div>
+          <div class="fin-top-actions">
+            <button type="button" class="btn-utility" id="open-categories-btn">Categorias</button>
+            <button type="button" class="btn-primary-sm" id="open-new-tx-btn">+ Novo</button>
+          </div>
         </div>
 
         <div class="finance-summary">
           <div class="fin-box">
-            <span class="fin-label">Saldo</span>
+            <span class="fin-label">Saldo do mês</span>
             <strong class="fin-big num" id="fin-saldo">R$ 0,00</strong>
           </div>
           <div class="fin-pair">
@@ -181,13 +231,19 @@
         <div class="list-section">
           <div class="section-row">
             <h3>Despesas por categoria</h3>
+            <button type="button" class="link-action hidden" id="clear-cat-filter-btn">Limpar filtro</button>
           </div>
-          <div id="financas-categorias" class="stack-xs"></div>
+          <div id="financas-categorias" class="stack-sm"></div>
         </div>
 
         <div class="list-section">
           <div class="section-row">
-            <h3>Últimos lançamentos</h3>
+            <h3>Lançamentos</h3>
+            <div class="filter-pills" id="fin-type-filters">
+              <button type="button" class="filter-pill active" data-type="">Todos</button>
+              <button type="button" class="filter-pill" data-type="DESPESA">Despesas</button>
+              <button type="button" class="filter-pill" data-type="RECEITA">Receitas</button>
+            </div>
           </div>
           <div id="transacoes-list" class="stack-xs"></div>
         </div>
@@ -337,6 +393,180 @@
       </button>
     </nav>
 
+    <!-- Bottom Sheet: Criar / Editar Tarefa -->
+    <div class="sheet-backdrop hidden" id="task-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="task-sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="task-sheet-title">Nova tarefa</h3>
+          <button type="button" class="link-action" id="close-task-sheet-btn">Fechar</button>
+        </div>
+        <button type="button" class="btn-origin-chat hidden" id="task-go-chat-btn">
+          <span>Abrir conversa onde foi registrada</span>
+        </button>
+        <form id="task-form" class="config-form">
+          <input type="hidden" id="task-id-input" />
+          <div class="field-col">
+            <label for="task-title-input">Título</label>
+            <input type="text" id="task-title-input" placeholder="Ex.: Enviar currículo da Blip" required />
+          </div>
+          <div class="field-row">
+            <label for="task-prio-select">Prioridade</label>
+            <select id="task-prio-select">
+              <option value="ALTA">Alta</option>
+              <option value="MEDIA" selected>Média</option>
+              <option value="BAIXA">Baixa</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="task-prazo-input">Prazo (opcional)</label>
+            <input type="date" id="task-prazo-input" />
+          </div>
+          <div class="btn-row">
+            <button type="submit" class="btn-primary-full">Salvar</button>
+            <button type="button" class="btn-danger hidden" id="task-delete-btn">Excluir</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Bottom Sheet: Criar / Editar Evento da Agenda -->
+    <div class="sheet-backdrop hidden" id="event-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="event-sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="event-sheet-title">Novo compromisso</h3>
+          <button type="button" class="link-action" id="close-event-sheet-btn">Fechar</button>
+        </div>
+        <button type="button" class="btn-origin-chat hidden" id="event-go-chat-btn">
+          <span>Abrir conversa onde foi agendado</span>
+        </button>
+        <form id="event-form" class="config-form">
+          <input type="hidden" id="event-id-input" />
+          <div class="field-col">
+            <label for="event-title-input">Título</label>
+            <input type="text" id="event-title-input" placeholder="Ex.: Revisão de Engenharia" required />
+          </div>
+          <div class="field-row">
+            <label for="event-start-input">Início</label>
+            <input type="datetime-local" id="event-start-input" required />
+          </div>
+          <div class="field-row">
+            <label for="event-end-input">Fim</label>
+            <input type="datetime-local" id="event-end-input" required />
+          </div>
+          <div class="field-col">
+            <label for="event-desc-input">Descrição (opcional)</label>
+            <input type="text" id="event-desc-input" placeholder="Detalhes ou link da reunião" />
+          </div>
+          <div class="btn-row">
+            <button type="submit" class="btn-primary-full">Salvar</button>
+            <button type="button" class="btn-danger hidden" id="event-delete-btn">Excluir</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Bottom Sheet: Criar / Editar Hábito de Saúde -->
+    <div class="sheet-backdrop hidden" id="habit-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="habit-sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="habit-sheet-title">Novo hábito</h3>
+          <button type="button" class="link-action" id="close-habit-sheet-btn">Fechar</button>
+        </div>
+        <form id="habit-form" class="config-form">
+          <input type="hidden" id="habit-id-input" />
+          <div class="field-col">
+            <label for="habit-name-input">Nome do hábito</label>
+            <input type="text" id="habit-name-input" placeholder="Ex.: Leitura, Creatina, Sono..." required />
+          </div>
+          <div class="field-row">
+            <label for="habit-meta-input">Meta diária</label>
+            <input type="number" id="habit-meta-input" step="any" min="0.1" value="1" required />
+          </div>
+          <div class="field-row">
+            <label for="habit-unit-input">Unidade</label>
+            <input type="text" id="habit-unit-input" placeholder="ml, min, sessao..." value="unidade" required />
+          </div>
+          <div class="field-row">
+            <label for="habit-time-input">Lembrete (opcional)</label>
+            <input type="time" id="habit-time-input" />
+          </div>
+          <div class="btn-row">
+            <button type="submit" class="btn-primary-full">Salvar</button>
+            <button type="button" class="btn-danger hidden" id="habit-delete-btn">Excluir</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Bottom Sheet: Criar / Editar Lançamento Financeiro -->
+    <div class="sheet-backdrop hidden" id="tx-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="tx-sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="tx-sheet-title">Novo lançamento</h3>
+          <button type="button" class="link-action" id="close-tx-sheet-btn">Fechar</button>
+        </div>
+
+        <button type="button" class="btn-origin-chat hidden" id="tx-go-chat-btn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Abrir conversa onde foi registrado</span>
+        </button>
+
+        <form id="tx-form" class="config-form">
+          <input type="hidden" id="tx-id-input" />
+          <div class="field-row">
+            <label for="tx-tipo-select">Tipo</label>
+            <select id="tx-tipo-select">
+              <option value="DESPESA">Despesa</option>
+              <option value="RECEITA">Receita</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="tx-valor-input">Valor (R$)</label>
+            <input type="number" id="tx-valor-input" step="0.01" min="0.01" placeholder="0,00" required />
+          </div>
+          <div class="field-col">
+            <label for="tx-desc-input">Descrição</label>
+            <input type="text" id="tx-desc-input" placeholder="Ex.: Almoço, Uber, Bolsa UFC..." required />
+          </div>
+          <div class="field-row">
+            <label for="tx-cat-select">Categoria</label>
+            <select id="tx-cat-select"></select>
+          </div>
+          <div class="field-row">
+            <label for="tx-data-input">Data</label>
+            <input type="date" id="tx-data-input" required />
+          </div>
+          <div class="btn-row">
+            <button type="submit" class="btn-primary-full" id="tx-save-btn">Salvar</button>
+            <button type="button" class="btn-danger hidden" id="tx-delete-btn">Excluir</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Bottom Sheet: Gerenciar Categorias Financeiras -->
+    <div class="sheet-backdrop hidden" id="cat-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="cat-sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="cat-sheet-title">Categorias</h3>
+          <button type="button" class="link-action" id="close-cat-sheet-btn">Fechar</button>
+        </div>
+        <form id="cat-form" class="cat-add-row">
+          <input type="color" id="cat-color-input" value="#0075de" aria-label="Cor da categoria" />
+          <input type="text" id="cat-name-input" placeholder="Nova categoria (ex.: Academia, Pets)" required />
+          <button type="submit" class="btn-primary-sm">Criar</button>
+        </form>
+        <div id="cat-manage-list" class="stack-xs sheet-list"></div>
+      </div>
+    </div>
+
     <!-- Bottom Sheet de Histórico de Conversas (Agrupado por Dia) -->
     <div class="sheet-backdrop hidden" id="history-sheet-backdrop">
       <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="history-sheet-title">
@@ -367,6 +597,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>
