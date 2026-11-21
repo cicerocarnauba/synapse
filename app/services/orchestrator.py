@@ -82,8 +82,12 @@ class SynapseOrchestrator:
             return []
 
         from google import genai
+        from google.genai import types
 
-        client = genai.Client(api_key=chave)
+        client = genai.Client(
+            api_key=chave,
+            http_options=types.HttpOptions(api_version="v1beta"),
+        )
         modelos: list[str] = []
         for m in client.models.list():
             nome = (getattr(m, "name", "") or "").replace("models/", "")
@@ -154,7 +158,7 @@ class SynapseOrchestrator:
 
         if chave_gemini:
             try:
-                resposta = self._executar_com_gemini(mensagem, acoes, chave_gemini)
+                resposta = self._executar_com_gemini(mensagem, acoes, chave_gemini, cid)
                 usou_ia = True
             except Exception as exc:
                 logger.warning("Falha ao chamar Gemini (%s).", exc)
@@ -165,9 +169,9 @@ class SynapseOrchestrator:
                     plural = "ação" if total == 1 else "ações"
                     resposta = f"Pronto! Executei {total} {plural} e atualizei o seu painel do dia."
                 else:
-                    resposta = self._executar_fallback_deterministico(mensagem, acoes)
+                    resposta = self._executar_fallback_deterministico(mensagem, acoes, cid)
         else:
-            resposta = self._executar_fallback_deterministico(mensagem, acoes)
+            resposta = self._executar_fallback_deterministico(mensagem, acoes, cid)
 
         latencia_ms = int((time.perf_counter() - inicio_ms) * 1000)
         self._registrar_auditoria(cid, mensagem, acoes, resposta, latencia_ms)
@@ -259,7 +263,7 @@ class SynapseOrchestrator:
             )
             return int(cursor.lastrowid)
 
-    def _construir_ferramentas(self, acoes: list[AcaoExecutada]) -> list[Any]:
+    def _construir_ferramentas(self, acoes: list[AcaoExecutada], conversa_id: int | None = None) -> list[Any]:
         """Cria funções Python tipadas para Function Calling com validação Pydantic (RN01)."""
 
         def registrar_transacao(
@@ -271,22 +275,23 @@ class SynapseOrchestrator:
         ) -> dict[str, Any]:
             """Registra uma DESPESA ou RECEITA financeira no banco SQL.
             tipo: DESPESA ou RECEITA.
-            categoria: ALIMENTACAO, TRANSPORTE, MORADIA, SAUDE, LAZER, ESTUDOS, SALARIO ou OUTROS.
+            categoria: use uma das categorias financeiras cadastradas do usuário (ex.: ALIMENTACAO, TRANSPORTE, SALARIO, OUTROS).
             data_transacao: data YYYY-MM-DD ou string vazia para hoje.
             """
             payload = TransacaoCreate(
                 tipo=TipoTransacao(tipo.upper()),
                 valor=valor,
-                categoria=CategoriaTransacao((categoria or "OUTROS").upper()),
+                categoria=(categoria or "OUTROS").upper(),
                 descricao=descricao,
                 data_transacao=data_transacao.strip() or None,
+                conversa_id=conversa_id,
             )
             dados = self.financas.registrar_transacao(payload)
             acoes.append(
                 AcaoExecutada(
                     modulo="FINANCAS",
                     ferramenta="registrar_transacao",
-                    resumo=f"{payload.tipo.value} de R$ {payload.valor:.2f} ({payload.categoria.value}): {payload.descricao}",
+                    resumo=f"{payload.tipo.value} de R$ {payload.valor:.2f} ({dados['categoria']}): {payload.descricao}",
                     dados=dados,
                 )
             )
@@ -305,6 +310,7 @@ class SynapseOrchestrator:
                 titulo=titulo,
                 prioridade=PrioridadeTarefa((prioridade or "MEDIA").upper()),
                 prazo=prazo.strip() or None,
+                conversa_id=conversa_id,
             )
             dados = self.tarefas.criar_tarefa(payload)
             acoes.append(
@@ -331,6 +337,7 @@ class SynapseOrchestrator:
                 inicio=inicio_iso,
                 fim=fim_iso,
                 descricao=descricao or "",
+                conversa_id=conversa_id,
             )
             dados = self.agenda.agendar_evento(payload)
             acoes.append(
@@ -353,6 +360,7 @@ class SynapseOrchestrator:
                 nome_habito=nome_habito,
                 quantidade=quantidade,
                 observacao=observacao or "",
+                conversa_id=conversa_id,
             )
             dados = self.saude.registrar_checkin(payload)
             prog = dados.get("progresso_atual") or {}
@@ -427,32 +435,172 @@ class SynapseOrchestrator:
             )
             return dados
 
+        def concluir_tarefa(tarefa_id: int) -> dict[str, Any]:
+            """Marca uma tarefa existente como CONCLUIDA pelo seu ID numérico."""
+            dados = self.tarefas.concluir_tarefa(int(tarefa_id))
+            if not dados:
+                return {"erro": f"Tarefa {tarefa_id} não encontrada."}
+            acoes.append(
+                AcaoExecutada(
+                    modulo="TAREFAS",
+                    ferramenta="concluir_tarefa",
+                    resumo=f"Tarefa concluída: {dados['titulo']}",
+                    dados=dados,
+                )
+            )
+            return dados
+
+        def atualizar_tarefa(
+            tarefa_id: int,
+            titulo: str,
+            prioridade: str,
+            prazo: str,
+        ) -> dict[str, Any]:
+            """Atualiza título, prioridade (BAIXA/MEDIA/ALTA) ou prazo (YYYY-MM-DD ou vazio) de uma tarefa existente."""
+            from app.schemas import TarefaUpdate
+
+            payload = TarefaUpdate(
+                titulo=titulo.strip() or None,
+                prioridade=PrioridadeTarefa(prioridade.upper()) if prioridade.strip() else None,
+                prazo=prazo.strip() if prazo.strip() else None,
+            )
+            dados = self.tarefas.atualizar_tarefa(int(tarefa_id), payload)
+            if not dados:
+                return {"erro": f"Tarefa {tarefa_id} não encontrada."}
+            acoes.append(
+                AcaoExecutada(
+                    modulo="TAREFAS",
+                    ferramenta="atualizar_tarefa",
+                    resumo=f"Tarefa atualizada: {dados['titulo']} [{dados['prioridade']}]",
+                    dados=dados,
+                )
+            )
+            return dados
+
+        def excluir_tarefa(tarefa_id: int) -> dict[str, Any]:
+            """Exclui/cancela uma tarefa existente pelo seu ID numérico (use quando o usuário disser que foi cancelada ou pedir para apagar)."""
+            ok = self.tarefas.excluir_tarefa(int(tarefa_id))
+            if not ok:
+                return {"erro": f"Tarefa {tarefa_id} não encontrada."}
+            acoes.append(
+                AcaoExecutada(
+                    modulo="TAREFAS",
+                    ferramenta="excluir_tarefa",
+                    resumo=f"Tarefa #{tarefa_id} excluída/cancelada",
+                    dados={"id": tarefa_id, "excluida": True},
+                )
+            )
+            return {"id": tarefa_id, "excluida": True}
+
+        def excluir_evento(evento_id: int) -> dict[str, Any]:
+            """Exclui/cancela um compromisso da agenda pelo seu ID numérico."""
+            ok = self.agenda.excluir_evento(int(evento_id))
+            if not ok:
+                return {"erro": f"Evento {evento_id} não encontrado."}
+            acoes.append(
+                AcaoExecutada(
+                    modulo="AGENDA",
+                    ferramenta="excluir_evento",
+                    resumo=f"Compromisso #{evento_id} cancelado/excluído",
+                    dados={"id": evento_id, "excluido": True},
+                )
+            )
+            return {"id": evento_id, "excluido": True}
+
+        def excluir_transacao(transacao_id: int) -> dict[str, Any]:
+            """Remove um lançamento financeiro (despesa/receita) pelo seu ID numérico."""
+            ok = self.financas.excluir_transacao(int(transacao_id))
+            if not ok:
+                return {"erro": f"Transação {transacao_id} não encontrada."}
+            acoes.append(
+                AcaoExecutada(
+                    modulo="FINANCAS",
+                    ferramenta="excluir_transacao",
+                    resumo=f"Lançamento #{transacao_id} removido",
+                    dados={"id": transacao_id, "excluida": True},
+                )
+            )
+            return {"id": transacao_id, "excluida": True}
+
         return [
             registrar_transacao,
+            excluir_transacao,
             criar_tarefa,
+            concluir_tarefa,
+            atualizar_tarefa,
+            excluir_tarefa,
             agendar_evento,
+            excluir_evento,
             registrar_checkin_saude,
             configurar_habito_saude,
             agendar_notificacao,
             consultar_briefing,
         ]
 
-    def _executar_com_gemini(self, mensagem: str, acoes: list[AcaoExecutada], api_key: str) -> str:
+    def _executar_com_gemini(
+        self,
+        mensagem: str,
+        acoes: list[AcaoExecutada],
+        api_key: str,
+        conversa_id: int | None = None,
+    ) -> str:
         from google import genai
         from google.genai import types
 
         agora = self.settings.now_local()
+        cats = ", ".join(c["nome"] for c in self.financas.listar_categorias())
+
+        # Contexto vivo dos itens atuais (para editar, concluir ou cancelar pelo prompt)
+        tarefas_pend = self.tarefas.listar_tarefas("PENDENTE")[:15]
+        eventos_prox = self.agenda.listar_eventos()[:15]
+        trans_rec = self.financas.listar_transacoes(limite=8)
+
+        resumo_tarefas = "; ".join(
+            f"[id={t['id']}] {t['titulo']} (prio={t['prioridade']}, prazo={t['prazo'] or 'sem prazo'})"
+            for t in tarefas_pend
+        ) or "nenhuma"
+        resumo_eventos = "; ".join(
+            f"[id={e['id']}] {e['titulo']} ({e['inicio']})"
+            for e in eventos_prox
+        ) or "nenhum"
+        resumo_trans = "; ".join(
+            f"[id={tr['id']}] {tr['tipo']} R${tr['valor']:.2f} {tr['descricao']} ({tr['categoria']})"
+            for tr in trans_rec
+        ) or "nenhuma"
+
+        # Memória curta da conversa atual
+        historico_txt = ""
+        if conversa_id is not None:
+            msgs_ant = self.listar_mensagens_conversa(conversa_id)[-6:]
+            if msgs_ant:
+                linhas_h = []
+                for m in msgs_ant:
+                    linhas_h.append(f"Usuário: {m['mensagem_usuario']}")
+                    linhas_h.append(f"Synapse: {m['resposta_assistente']}")
+                historico_txt = "\nHistórico recente desta conversa:\n" + "\n".join(linhas_h)
+
         system_instruction = (
             "Você é o Synapse, um assistente pessoal orquestrador em português do Brasil. "
             f"Data e hora atual no fuso {self.settings.timezone_name}: {agora.isoformat(timespec='seconds')}. "
-            "Analise a mensagem do usuário e acione UMA OU MAIS ferramentas apropriadas (Finanças, Tarefas, Agenda, Saúde, Notificações ou Briefing). "
-            "Se a mensagem for apenas uma saudação ou conversa casual sem ação prática, responda naturalmente sem chamar ferramentas. "
-            "Converta expressões temporais relativas (hoje, amanhã, às 19h) para ISO 8601 usando a data atual. "
-            "Seja conciso, objetivo e sempre confirme claramente o que foi registrado."
+            f"Categorias financeiras cadastradas: {cats}. "
+            f"\nTarefas pendentes atuais: {resumo_tarefas}. "
+            f"\nCompromissos atuais na agenda: {resumo_eventos}. "
+            f"\nÚltimos lançamentos financeiros: {resumo_trans}. "
+            f"{historico_txt}\n"
+            "REGRAS IMPORTANTES:\n"
+            "1. Se o usuário disser que algo foi CANCELADO, REMOVIDO ou APAGADO (ex.: 'cancelaram a prova'), "
+            "use excluir_tarefa(id) ou excluir_evento(id) no item correspondente — NÃO crie uma nova tarefa sobre o cancelamento!\n"
+            "2. Se o usuário disser que CONCLUIU/FEZ uma tarefa existente, use concluir_tarefa(id).\n"
+            "3. Se o usuário pedir para MUDAR data, prazo, prioridade ou título de uma tarefa, use atualizar_tarefa(id, ...).\n"
+            "4. Se for saudação ou conversa casual sem ação prática, responda naturalmente sem chamar ferramentas.\n"
+            "5. Converta datas relativas (hoje, amanhã, próxima quarta) para ISO 8601 usando a data atual. Seja conciso e confirme exatamente o que fez."
         )
 
-        client = genai.Client(api_key=api_key)
-        tools = self._construir_ferramentas(acoes)
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(api_version="v1beta"),
+        )
+        tools = self._construir_ferramentas(acoes, conversa_id=conversa_id)
         modelo = self.obter_modelo_gemini()
 
         # Desabilita thinking longo para respostas de baixa latência em chat/tool-calling
@@ -479,9 +627,14 @@ class SynapseOrchestrator:
             )
         return (response.text or "Ações processadas com sucesso.").strip()
 
-    def _executar_fallback_deterministico(self, mensagem: str, acoes: list[AcaoExecutada]) -> str:
+    def _executar_fallback_deterministico(
+        self,
+        mensagem: str,
+        acoes: list[AcaoExecutada],
+        conversa_id: int | None = None,
+    ) -> str:
         """Parser determinístico para operação offline, testes e demonstração sem GEMINI_API_KEY."""
-        tools = {fn.__name__: fn for fn in self._construir_ferramentas(acoes)}
+        tools = {fn.__name__: fn for fn in self._construir_ferramentas(acoes, conversa_id=conversa_id)}
         texto = mensagem.strip()
         lower = texto.lower()
         agora = self.settings.now_local()
