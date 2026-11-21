@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Synapse" />
+  <title>Synapse</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top App Bar -->
+    <header class="app-header">
+      <div class="header-left">
+        <svg class="brand-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M12 2v4"></path>
+          <path d="M12 18v4"></path>
+          <path d="m4.93 4.93 2.83 2.83"></path>
+          <path d="m16.24 16.24 2.83 2.83"></path>
+          <path d="M2 12h4"></path>
+          <path d="M18 12h4"></path>
+          <path d="m4.93 19.07 2.83-2.83"></path>
+          <path d="m16.24 7.76 2.83-2.83"></path>
+        </svg>
+        <div class="header-titles">
+          <h1 id="screen-title">Chat</h1>
+          <span class="header-sub" id="engine-status">Carregando...</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" class="icon-btn" id="notif-toggle-btn" aria-label="Notificações">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path>
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>
+          </svg>
+          <span class="notif-dot hidden" id="notif-badge">0</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Conteúdo das 5 Telas -->
+    <main class="app-screens">
+      <!-- ABA 1: HOJE (AGENDA + TAREFAS) -->
+      <section class="screen scroll-screen" id="screen-hoje" data-title="Hoje">
+        <div class="screen-head">
+          <h2 id="briefing-date">Hoje</h2>
+          <p id="briefing-meta" class="muted">Sincronizado</p>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Agenda</h3>
+            <span class="pill-count num" id="agenda-count">0</span>
+          </div>
+          <div id="agenda-list" class="stack-sm"></div>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Tarefas Pendentes</h3>
+            <span class="pill-count num" id="tarefas-count">0</span>
+          </div>
+          <div id="tarefas-list" class="stack-xs"></div>
+        </div>
+      </section>
+
+      <!-- ABA 2: SAÚDE & HÁBITOS -->
+      <section class="screen scroll-screen" id="screen-saude" data-title="Saúde">
+        <div class="screen-head">
+          <h2>Saúde hoje</h2>
+          <p class="muted">Hidratação, treino e refeições</p>
+        </div>
+
+        <div class="quick-actions-grid">
+          <button type="button" class="quick-tile" data-health="Agua" data-qty="250">
+            <span class="tile-title">+250 ml</span>
+            <span class="tile-sub">Água</span>
+          </button>
+          <button type="button" class="quick-tile" data-health="Agua" data-qty="500">
+            <span class="tile-title">+500 ml</span>
+            <span class="tile-sub">Garrafa</span>
+          </button>
+          <button type="button" class="quick-tile" data-health="Treino" data-qty="1">
+            <span class="tile-title">Treino</span>
+            <span class="tile-sub">Concluir</span>
+          </button>
+          <button type="button" class="quick-tile" data-health="Almoco" data-qty="1">
+            <span class="tile-title">Almoço</span>
+            <span class="tile-sub">Registrar</span>
+          </button>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Progresso diário</h3>
+          </div>
+          <div id="saude-list" class="stack-md"></div>
+        </div>
+      </section>
+
+      <!-- ABA 3 (CENTRO): CHAT CONVERSACIONAL -->
+      <section class="screen active" id="screen-chat" data-title="Chat">
+        <div class="chat-feed" id="chat-feed" aria-live="polite">
+          <div class="intro-block">
+            <h2>Mande qualquer coisa</h2>
+            <p>Gastos, compromissos, tarefas, água ou treino — tudo em uma frase.</p>
+            <div class="quick-prompts">
+              <button type="button" class="prompt-chip" data-prompt="Gastei 38,50 no almoço, bebi 500ml de água e marca revisão amanhã às 19h">
+                Almoço + Água + Agenda
+              </button>
+              <button type="button" class="prompt-chip" data-prompt="Bebi 500ml de água">
+                +500ml água
+              </button>
+              <button type="button" class="prompt-chip" data-prompt="Fiz o treino hoje e almocei">
+                Treino e almoço
+              </button>
+              <button type="button" class="prompt-chip" data-prompt="Me lembra de revisar o currículo da Blip hoje">
+                Tarefa urgente
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <form class="composer" id="inbox-form" autocomplete="off">
+          <button type="button" class="mic-btn" id="mic-btn" aria-label="Falar mensagem" title="Ditar por voz">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" x2="12" y1="19" y2="22"></line>
+            </svg>
+          </button>
+          <label for="inbox-input" class="sr-only">Mensagem para o Synapse</label>
+          <input
+            type="text"
+            id="inbox-input"
+            placeholder="Gasto, tarefa, agenda ou água..."
+            required
+          />
+          <button type="submit" class="send-btn" id="send-btn" aria-label="Enviar">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"></path>
+              <path d="m12 5 7 7-7 7"></path>
+            </svg>
+          </button>
+        </form>
+      </section>
+
+      <!-- ABA 4: FINANÇAS -->
+      <section class="screen scroll-screen" id="screen-financas" data-title="Finanças">
+        <div class="screen-head">
+          <h2>Finanças</h2>
+          <p class="muted" id="financas-periodo">Mês atual</p>
+        </div>
+
+        <div class="finance-summary">
+          <div class="fin-box">
+            <span class="fin-label">Saldo</span>
+            <strong class="fin-big num" id="fin-saldo">R$ 0,00</strong>
+          </div>
+          <div class="fin-pair">
+            <div class="fin-mini">
+              <span class="fin-label">Receitas</span>
+              <strong class="num positive" id="fin-receitas">R$ 0,00</strong>
+            </div>
+            <div class="fin-mini">
+              <span class="fin-label">Despesas</span>
+              <strong class="num negative" id="fin-despesas">R$ 0,00</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Despesas por categoria</h3>
+          </div>
+          <div id="financas-categorias" class="stack-xs"></div>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Últimos lançamentos</h3>
+          </div>
+          <div id="transacoes-list" class="stack-xs"></div>
+        </div>
+      </section>
+
+      <!-- ABA 5: CONFIGURAÇÕES -->
+      <section class="screen scroll-screen" id="screen-config" data-title="Configurações">
+        <div class="screen-head">
+          <h2>Configurações</h2>
+          <p class="muted">Metas de saúde, integrações e notificações</p>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Meta Diária de Água</h3>
+          </div>
+          <form id="water-goal-form" class="config-form">
+            <div class="field-row">
+              <label for="water-goal-input">Meta (ml)</label>
+              <input type="number" id="water-goal-input" min="500" step="100" value="2500" required />
+            </div>
+            <div class="field-row">
+              <label for="water-time-input">Lembrete diário</label>
+              <input type="time" id="water-time-input" value="10:00" />
+            </div>
+            <button type="submit" class="btn-primary-full">Salvar meta de água</button>
+            <p class="form-feedback hidden" id="water-goal-feedback"></p>
+          </form>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Integrações e Motor</h3>
+          </div>
+          <div class="stack-xs">
+            <div class="row-card">
+              <div>
+                <p class="row-title">Motor de IA (Gemini)</p>
+                <p class="row-sub">Function Calling multi-domínio</p>
+              </div>
+              <span class="sync-badge PENDENTE" id="cfg-ia-status">Local</span>
+            </div>
+            <div class="row-card">
+              <div>
+                <p class="row-title">Google Calendar</p>
+                <p class="row-sub">Sincronização de eventos</p>
+              </div>
+              <span class="sync-badge PENDENTE" id="cfg-gcal-status">Pendente</span>
+            </div>
+            <div class="row-card">
+              <div>
+                <p class="row-title">Fuso Horário</p>
+                <p class="row-sub" id="cfg-tz">America/Fortaleza</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Alertas e Desenvolvedor</h3>
+          </div>
+          <div class="stack-xs">
+            <button type="button" class="btn-utility full-w" id="cfg-enable-push-btn">Ativar notificações no celular</button>
+            <a href="/docs" target="_blank" rel="noopener" class="btn-utility full-w link-btn">Abrir documentação da API (Swagger)</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Tab Bar (5 Abas com Chat no Centro) -->
+    <nav class="tab-bar" aria-label="Navegação principal">
+      <button type="button" class="tab-item" data-tab="hoje">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect>
+          <line x1="16" x2="16" y1="2" y2="6"></line>
+          <line x1="8" x2="8" y1="2" y2="6"></line>
+          <line x1="3" x2="21" y1="10" y2="10"></line>
+        </svg>
+        <span>Hoje</span>
+      </button>
+
+      <button type="button" class="tab-item" data-tab="saude">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
+        </svg>
+        <span>Saúde</span>
+      </button>
+
+      <button type="button" class="tab-item tab-center active" data-tab="chat">
+        <span class="center-pill">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </span>
+        <span>Chat</span>
+      </button>
+
+      <button type="button" class="tab-item" data-tab="financas">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" x2="12" y1="2" y2="22"></line>
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+        <span>Finanças</span>
+      </button>
+
+      <button type="button" class="tab-item" data-tab="config">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+
+    <!-- Bottom Sheet de Notificações -->
+    <div class="sheet-backdrop hidden" id="notif-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="sheet-title">Notificações e Lembretes</h3>
+          <button type="button" class="link-action" id="close-sheet-btn">Fechar</button>
+        </div>
+        <div class="sheet-actions">
+          <button type="button" class="btn-utility" id="enable-push-btn">Ativar alertas no celular</button>
+          <button type="button" class="btn-utility" id="dispatch-btn">Disparar vencidas</button>
+        </div>
+        <div id="notificacoes-list" class="stack-xs sheet-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
