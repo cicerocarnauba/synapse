@@ -1,8 +1,8 @@
-const CACHE_NAME = "synapse-pwa-v3";
+const CACHE_NAME = "synapse-pwa-v9";
 const ASSETS = [
   "/",
-  "/static/styles.css?v=3",
-  "/static/app.js?v=3",
+  "/static/styles.css?v=9",
+  "/static/app.js?v=8",
   "/static/icon.svg",
   "/manifest.webmanifest"
 ];

@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=4" />
+  <link rel="stylesheet" href="/static/styles.css?v=9" />
 </head>
 <body>
   <div class="app-shell">
@@ -120,39 +120,37 @@
       <section class="screen scroll-screen" id="screen-saude" data-title="Saúde">
         <div class="fin-topbar">
           <div>
-            <h2>Saúde hoje</h2>
-            <p class="muted">Hidratação, treino e hábitos</p>
+            <h2>Saúde</h2>
+            <p class="muted" id="saude-sub">Acompanhe metas e consistência</p>
           </div>
           <button type="button" class="btn-primary-sm" id="open-new-habit-btn">+ Hábito</button>
         </div>
 
-        <div class="quick-actions-grid">
-          <button type="button" class="quick-tile" data-health="Agua" data-qty="250">
-            <span class="tile-title">+250 ml</span>
-            <span class="tile-sub">Água</span>
-          </button>
-          <button type="button" class="quick-tile" data-health="Agua" data-qty="500">
-            <span class="tile-title">+500 ml</span>
-            <span class="tile-sub">Garrafa</span>
-          </button>
-          <button type="button" class="quick-tile" data-health="Treino" data-qty="1">
-            <span class="tile-title">Treino</span>
-            <span class="tile-sub">Concluir</span>
-          </button>
-          <button type="button" class="quick-tile" data-health="Almoco" data-qty="1">
-            <span class="tile-title">Almoço</span>
-            <span class="tile-sub">Registrar</span>
-          </button>
+        <!-- Card de Resumo & Consistência dos Últimos 7 Dias -->
+        <div class="health-summary-card">
+          <div class="health-score-row">
+            <div>
+              <span class="fin-label">Progresso de hoje</span>
+              <strong class="fin-big num" id="health-score-val">0%</strong>
+              <p class="muted" id="health-goals-meta">0 de 0 metas concluídas</p>
+            </div>
+            <div class="streak-pill" id="health-streak-pill">
+              <strong class="num" id="health-streak-val">0</strong>
+              <span>dias seguidos</span>
+            </div>
+          </div>
+          <div class="week-strip" id="health-week-strip"></div>
         </div>
 
+        <!-- Cards Interativos por Hábito -->
         <div class="list-section">
           <div class="section-row">
-            <h3>Metas de hoje</h3>
-            <span class="muted">Toque para editar</span>
+            <h3>Seus hábitos</h3>
           </div>
           <div id="saude-list" class="stack-sm"></div>
         </div>
 
+        <!-- Histórico de Check-ins de Hoje -->
         <div class="list-section">
           <div class="section-row">
             <h3>Registros de hoje</h3>
@@ -179,12 +177,12 @@
             </svg>
           </button>
           <label for="inbox-input" class="sr-only">Mensagem para o Synapse</label>
-          <input
-            type="text"
+          <textarea
             id="inbox-input"
+            rows="1"
             placeholder="Gasto, tarefa, agenda ou água..."
             required
-          />
+          ></textarea>
           <button type="submit" class="send-btn" id="send-btn" aria-label="Enviar">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M5 12h14"></path>
@@ -253,7 +251,24 @@
       <section class="screen scroll-screen" id="screen-config" data-title="Configurações">
         <div class="screen-head">
           <h2>Configurações</h2>
-          <p class="muted">Metas de saúde, integrações e notificações</p>
+          <p class="muted">Aparência, metas de saúde, cérebro e integrações</p>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
+            <h3>Aparência</h3>
+          </div>
+          <div class="row-card">
+            <div>
+              <p class="row-title">Tema do aplicativo</p>
+              <p class="row-sub">Claro, noturno ou automático</p>
+            </div>
+            <div class="filter-pills" id="theme-selector">
+              <button type="button" class="filter-pill" data-theme-choice="light">Claro</button>
+              <button type="button" class="filter-pill" data-theme-choice="dark">Noturno</button>
+              <button type="button" class="filter-pill active" data-theme-choice="system">Auto</button>
+            </div>
+          </div>
         </div>
 
         <div class="list-section">
@@ -276,7 +291,7 @@
 
         <div class="list-section">
           <div class="section-row">
-            <h3>Inteligência Artificial</h3>
+            <h3>Cérebro do Synapse</h3>
             <span class="sync-badge PENDENTE" id="cfg-ia-status">LOCAL</span>
           </div>
 
@@ -597,6 +612,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>

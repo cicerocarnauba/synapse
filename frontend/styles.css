@@ -28,6 +28,67 @@
   --radius-full: 9999px;
 }
 
+/* Tema Noturno (Notion Warm Dark) */
+[data-theme="dark"] {
+  --primary: #3b9eff;
+  --primary-active: #2383e2;
+  --on-primary: #ffffff;
+  --canvas: #191919;
+  --canvas-soft: #232323;
+  --surface: #262626;
+  --ink: #f0f0ef;
+  --ink-secondary: #d4d4d2;
+  --ink-muted: #9b9a97;
+  --ink-faint: #6f6e6b;
+  --hairline: #323232;
+
+  --accent-teal: #3fb8b3;
+  --accent-green: #2ec253;
+  --accent-orange: #f27a24;
+  --accent-purple-deep: #d6b6f6;
+  --accent-purple-soft: #2d213a;
+  --accent-teal-soft: #1a2e2d;
+  --accent-green-soft: #182e1e;
+  --accent-orange-soft: #332217;
+  --accent-blue-soft: #17283a;
+}
+
+[data-theme="dark"] ::selection {
+  background: #1f456b;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .msg.user .msg-bubble {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+[data-theme="dark"] .action-tag[data-mod="FINANCAS"] { color: #6ee787; }
+[data-theme="dark"] .action-tag[data-mod="SAUDE"] { color: #6ee0db; }
+[data-theme="dark"] .action-tag[data-mod="AGENDA"] { color: #d6b6f6; }
+[data-theme="dark"] .action-tag[data-mod="TAREFAS"] { color: #7cc4ff; }
+[data-theme="dark"] .action-tag[data-mod="NOTIFICACOES"] { color: #ffb074; }
+
+[data-theme="dark"] .sync-badge.SINCRONIZADO { color: #6ee787; }
+[data-theme="dark"] .sync-badge.PENDENTE { color: #ffb074; }
+[data-theme="dark"] .prio-dot.ALTA { color: #ffb074; }
+[data-theme="dark"] .prio-dot.MEDIA { color: #7cc4ff; }
+[data-theme="dark"] .prio-dot.BAIXA { background: #2c2c2c; color: var(--ink-muted); }
+[data-theme="dark"] .positive { color: #6ee787; }
+[data-theme="dark"] .negative { color: #ff8a7a; }
+[data-theme="dark"] .progress-track { background: #333333; }
+[data-theme="dark"] .tx-clickable:hover { background: #2c2c2c; border-color: #444444; }
+[data-theme="dark"] .quick-tile:active { background: #2d2d2d; }
+[data-theme="dark"] .btn-origin-chat { border-color: #254a70; }
+[data-theme="dark"] .btn-danger { background: #381c1a; border-color: #6b2b27; color: #ff9c94; }
+[data-theme="dark"] .form-feedback { color: #6ee787; }
+[data-theme="dark"] .form-feedback.error { color: #ff8a7a; }
+[data-theme="dark"] .history-del-btn:hover { background: #381c1a; border-color: #6b2b27; color: #ff9c94; }
+[data-theme="dark"] input,
+[data-theme="dark"] select {
+  color-scheme: dark;
+}
+
 *,
 *::before,
 *::after {
@@ -51,6 +112,43 @@ body {
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Rolagem fluida e scrollbar discreta (Claro e Noturno) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.28) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.48);
+}
+
+[data-theme="dark"] * {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .sr-only {
@@ -205,7 +303,10 @@ body {
 
 .scroll-screen {
   overflow-y: auto;
-  padding: 18px 16px 24px;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  padding: 18px 16px 32px;
   gap: 20px;
 }
 
@@ -221,6 +322,9 @@ body {
 .chat-feed {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
   padding: 18px 16px 14px;
   display: flex;
   flex-direction: column;
@@ -394,10 +498,10 @@ body {
   color: var(--ink-faint);
 }
 
-/* Composer Mobile */
+/* Composer Mobile (auto-expansível estilo WhatsApp) */
 .composer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--hairline);
@@ -426,21 +530,27 @@ body {
   color: var(--accent-orange);
 }
 
-.composer input {
+.composer textarea {
   flex: 1;
   min-width: 0;
-  height: 40px;
+  min-height: 40px;
+  max-height: 120px;
+  resize: none;
+  overflow-y: hidden;
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-full);
-  padding: 0 14px;
+  border-radius: 20px;
+  padding: 9px 14px;
   font-size: 14.5px;
+  line-height: 1.4;
   font-family: inherit;
   color: var(--ink);
   background: var(--canvas-soft);
   caret-color: var(--primary);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
-.composer input:focus {
+.composer textarea:focus {
   outline: none;
   border-color: var(--primary);
   background: var(--canvas);
@@ -571,6 +681,145 @@ body {
 .prio-dot.ALTA { background: var(--accent-orange-soft); color: #8f3b00; }
 .prio-dot.MEDIA { background: var(--accent-blue-soft); color: #005bab; }
 .prio-dot.BAIXA { background: #eae8e5; color: var(--ink-muted); }
+
+/* Saúde — Resumo Semanal e Cards Interativos */
+.health-summary-card {
+  background: var(--canvas-soft);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.health-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.streak-pill {
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 84px;
+}
+
+.streak-pill strong {
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--accent-teal);
+}
+
+.streak-pill span {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+}
+
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.week-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.week-day.active .week-dot {
+  background: var(--accent-teal-soft);
+  border-color: var(--accent-teal);
+  color: var(--accent-teal);
+}
+
+.week-day.today .week-dot {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.habit-card {
+  background: var(--canvas-soft);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.habit-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.habit-card-meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.habit-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.habit-quick-btn {
+  appearance: none;
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-full);
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.habit-quick-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.habit-quick-btn.done-btn {
+  background: var(--accent-green-soft);
+  border-color: transparent;
+  color: #0e6b22;
+}
+
+[data-theme="dark"] .habit-quick-btn.done-btn {
+  color: #6ee787;
+}
 
 /* Saúde */
 .quick-actions-grid {
@@ -915,7 +1164,13 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.cat-bar-head strong {
+  color: var(--ink);
 }
 
 .cat-label-wrap {
@@ -938,8 +1193,19 @@ body {
   width: 100%;
   text-align: left;
   font-family: inherit;
+  color: var(--ink-secondary);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.tx-clickable > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.tx-clickable > strong {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tx-clickable:hover {
@@ -1293,5 +1559,7 @@ body {
 
 .sheet-list {
   overflow-y: auto;
-  padding-bottom: 6px;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 10px;
 }

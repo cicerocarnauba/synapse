@@ -37,6 +37,36 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
+// --- Tema Claro / Noturno / Auto (salvo em localStorage) ---
+const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+
+function aplicarTema(escolha) {
+  const modo = escolha || localStorage.getItem("synapse-theme") || "system";
+  localStorage.setItem("synapse-theme", modo);
+  const escuro = modo === "dark" || (modo === "system" && themeMedia.matches);
+  document.documentElement.setAttribute("data-theme", escuro ? "dark" : "light");
+
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.setAttribute("content", escuro ? "#191919" : "#ffffff");
+
+  document.querySelectorAll("#theme-selector .filter-pill").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.themeChoice === modo);
+  });
+}
+
+document.getElementById("theme-selector").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-theme-choice]");
+  if (btn) aplicarTema(btn.dataset.themeChoice);
+});
+
+themeMedia.addEventListener("change", () => {
+  if ((localStorage.getItem("synapse-theme") || "system") === "system") {
+    aplicarTema("system");
+  }
+});
+
+aplicarTema();
+
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -201,12 +231,29 @@ function iniciarNovaConversa() {
   inboxInput.focus();
 }
 
+function ajustarAlturaComposer() {
+  inboxInput.style.height = "auto";
+  const maxH = 120;
+  const novaAltura = Math.min(inboxInput.scrollHeight, maxH);
+  inboxInput.style.height = `${novaAltura}px`;
+  inboxInput.style.overflowY = inboxInput.scrollHeight > maxH ? "auto" : "hidden";
+}
+
+inboxInput.addEventListener("input", ajustarAlturaComposer);
+inboxInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    enviarMensagem(inboxInput.value);
+  }
+});
+
 async function enviarMensagem(texto) {
   const clean = texto.trim();
   if (!clean) return;
 
   appendUserMessage(clean);
   inboxInput.value = "";
+  ajustarAlturaComposer();
   sendBtn.disabled = true;
 
   try {
@@ -458,6 +505,36 @@ async function carregarTarefas() {
         .join("");
 }
 
+async function carregarResumoSaude() {
+  const resp = await fetch("/api/v1/saude/resumo-semanal");
+  if (!resp.ok) return;
+  const r = await resp.json();
+
+  const scoreEl = document.getElementById("health-score-val");
+  const goalsEl = document.getElementById("health-goals-meta");
+  const streakEl = document.getElementById("health-streak-val");
+  const weekEl = document.getElementById("health-week-strip");
+
+  if (scoreEl) scoreEl.textContent = `${r.score_hoje}%`;
+  if (goalsEl) goalsEl.textContent = `${r.metas_batidas} de ${r.total_habitos} metas concluídas`;
+  if (streakEl) streakEl.textContent = String(r.streak_dias);
+
+  if (weekEl) {
+    weekEl.innerHTML = (r.ultimos_7_dias || [])
+      .map((d) => {
+        const classes = ["week-day"];
+        if (d.qtd_checkins > 0) classes.push("active");
+        if (d.eh_hoje) classes.push("today");
+        return `
+          <div class="${classes.join(" ")}">
+            <span class="week-dot num">${d.qtd_checkins > 0 ? d.qtd_checkins : "·"}</span>
+            <span>${escapeHtml(d.label)}</span>
+          </div>`;
+      })
+      .join("");
+  }
+}
+
 async function carregarCheckinsHoje() {
   const resp = await fetch("/api/v1/saude/checkins");
   if (!resp.ok) return;
@@ -598,27 +675,49 @@ async function carregarBriefing() {
   eventosCache = b.proximos_eventos || [];
   renderCalendarioEAgenda();
 
-  // Saúde (clicável para editar hábito + histórico de check-ins)
+  // Saúde (cards interativos com botões rápidos + consistência 7 dias + histórico)
   habitosCache = b.saude_hoje || [];
   const saudeEl = document.getElementById("saude-list");
   saudeEl.innerHTML = !habitosCache.length
-    ? `<p class="empty-state">Nenhum hábito ativo.</p>`
+    ? `<p class="empty-state">Nenhum hábito ativo. Toque em + Hábito para começar.</p>`
     : habitosCache
-        .map(
-          (h) => `
-          <button type="button" class="cat-bar-item" data-habit-edit="${h.id}">
-            <div class="habit-top">
-              <span class="habit-name">${escapeHtml(h.nome)}</span>
-              <span class="habit-val num">${h.total_hoje} / ${h.meta_diaria} ${escapeHtml(h.unidade)} (${h.percentual}%)</span>
-            </div>
-            <div class="progress-track">
-              <div class="progress-fill ${h.concluido ? "done" : ""}" style="width: ${h.percentual}%"></div>
-            </div>
-          </button>`
-        )
+        .map((h) => {
+          const falta = Math.max(0, Number((h.meta_diaria - h.total_hoje).toFixed(1)));
+          const statusTxt = h.concluido
+            ? "Meta concluída!"
+            : `Faltam ${falta} ${escapeHtml(h.unidade)}`;
+          const lembreteTxt = h.horario_lembrete ? ` · Lembrete ${escapeHtml(h.horario_lembrete)}` : "";
+
+          const isAgua = h.unidade.toLowerCase() === "ml";
+          const botoes = isAgua
+            ? `
+              <button type="button" class="habit-quick-btn" data-quick-habit="${escapeHtml(h.nome)}" data-quick-qty="250">+250 ml</button>
+              <button type="button" class="habit-quick-btn" data-quick-habit="${escapeHtml(h.nome)}" data-quick-qty="500">+500 ml</button>`
+            : `
+              <button type="button" class="habit-quick-btn ${h.concluido ? "done-btn" : ""}" data-quick-habit="${escapeHtml(h.nome)}" data-quick-qty="1">
+                ${h.concluido ? "+1 extra" : "+1 " + escapeHtml(h.unidade)}
+              </button>`;
+
+          return `
+            <div class="habit-card">
+              <div class="habit-card-head">
+                <div>
+                  <span class="habit-name">${escapeHtml(h.nome)}</span>
+                  <div class="habit-card-meta num">${h.total_hoje} / ${h.meta_diaria} ${escapeHtml(h.unidade)} · ${statusTxt}${lembreteTxt}</div>
+                </div>
+                <button type="button" class="link-action" data-habit-edit="${h.id}">Editar</button>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill ${h.concluido ? "done" : ""}" style="width: ${h.percentual}%"></div>
+              </div>
+              <div class="habit-card-actions">
+                ${botoes}
+              </div>
+            </div>`;
+        })
         .join("");
 
-  await carregarCheckinsHoje();
+  await Promise.all([carregarResumoSaude(), carregarCheckinsHoje()]);
 
   // Finanças (carregamento completo com filtros, cores e categorias)
   await carregarFinancas();
@@ -1015,11 +1114,27 @@ document.getElementById("event-delete-btn").addEventListener("click", async () =
   }
 });
 
-document.getElementById("saude-list").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-habit-edit]");
-  if (!btn) return;
-  const h = habitosCache.find((item) => item.id === Number(btn.dataset.habitEdit));
-  if (h) abrirSheetHabito(h);
+document.getElementById("saude-list").addEventListener("click", async (e) => {
+  const quickBtn = e.target.closest("button[data-quick-habit]");
+  if (quickBtn) {
+    await fetch("/api/v1/saude/checkins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nome_habito: quickBtn.dataset.quickHabit,
+        quantidade: Number(quickBtn.dataset.quickQty),
+        observacao: "Atalho rápido",
+      }),
+    });
+    await carregarBriefing();
+    return;
+  }
+
+  const editBtn = e.target.closest("button[data-habit-edit]");
+  if (editBtn) {
+    const h = habitosCache.find((item) => item.id === Number(editBtn.dataset.habitEdit));
+    if (h) abrirSheetHabito(h);
+  }
 });
 
 document.getElementById("habit-form").addEventListener("submit", async (e) => {
