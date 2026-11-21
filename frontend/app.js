@@ -3,10 +3,12 @@ const inboxForm = document.getElementById("inbox-form");
 const inboxInput = document.getElementById("inbox-input");
 const sendBtn = document.getElementById("send-btn");
 const micBtn = document.getElementById("mic-btn");
-const engineStatus = document.getElementById("engine-status");
-const screenTitle = document.getElementById("screen-title");
 const notifBadge = document.getElementById("notif-badge");
 const notifBackdrop = document.getElementById("notif-sheet-backdrop");
+const historyBackdrop = document.getElementById("history-sheet-backdrop");
+const historyList = document.getElementById("history-list");
+
+let conversaAtualId = null;
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -23,26 +25,39 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+function irParaAba(tab) {
+  document.querySelectorAll(".tab-item").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".screen").forEach((s) => {
+    const isTarget = s.id === `screen-${tab}`;
+    s.classList.toggle("active", isTarget);
+  });
+  if (tab !== "chat") {
+    carregarBriefing();
+  }
+}
+
 // Navegação por Bottom Tab Bar
 document.querySelectorAll(".tab-item").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const tab = btn.dataset.tab;
-    document.querySelectorAll(".tab-item").forEach((b) => b.classList.toggle("active", b === btn));
-    document.querySelectorAll(".screen").forEach((s) => {
-      const isTarget = s.id === `screen-${tab}`;
-      s.classList.toggle("active", isTarget);
-      if (isTarget) {
-        screenTitle.textContent = s.dataset.title || "Synapse";
-      }
-    });
-    if (tab !== "chat") {
-      carregarBriefing();
-    }
-  });
+  btn.addEventListener("click", () => irParaAba(btn.dataset.tab));
 });
 
-// Mensagens no Inbox
+function renderEmptyChat() {
+  chatFeed.innerHTML = `
+    <div class="empty-chat" id="empty-chat">
+      <h2>Como posso organizar seu dia?</h2>
+      <p>Envie gastos, compromissos, tarefas ou registros de saúde em linguagem natural.</p>
+    </div>
+  `;
+}
+
+function limparEstadoVazio() {
+  const empty = document.getElementById("empty-chat");
+  if (empty) empty.remove();
+}
+
+// Mensagens no Chat
 function appendUserMessage(text) {
+  limparEstadoVazio();
   const el = document.createElement("div");
   el.className = "msg user";
   el.innerHTML = `<div class="msg-bubble">${escapeHtml(text)}</div>`;
@@ -51,6 +66,7 @@ function appendUserMessage(text) {
 }
 
 function appendAssistantMessage(data) {
+  limparEstadoVazio();
   const el = document.createElement("div");
   el.className = "msg assistant";
 
@@ -64,13 +80,105 @@ function appendAssistantMessage(data) {
     .join("");
 
   const modo = data.usou_ia ? "Gemini IA" : "Modo Local";
+  const metaTexto = data.latencia_ms !== undefined ? `${modo} · ${data.latencia_ms}ms` : "";
   el.innerHTML = `
     <div class="msg-bubble">${escapeHtml(data.resposta)}</div>
     ${tags ? `<div class="action-list">${tags}</div>` : ""}
-    <div class="msg-meta">${modo} · ${data.latencia_ms}ms</div>
+    ${metaTexto ? `<div class="msg-meta">${metaTexto}</div>` : ""}
   `;
   chatFeed.appendChild(el);
   chatFeed.scrollTop = chatFeed.scrollHeight;
+}
+
+function dataLocalISO(offsetDias = 0) {
+  const d = new Date(Date.now() + offsetDias * 86400000);
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+function formatarRotuloDia(dataDia) {
+  if (dataDia === dataLocalISO(0)) return "Hoje";
+  if (dataDia === dataLocalISO(-1)) return "Ontem";
+  const [ano, mes, dia] = dataDia.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+async function carregarHistoricoConversas() {
+  const resp = await fetch("/api/v1/conversas");
+  if (!resp.ok) return;
+  const conversas = await resp.json();
+
+  if (!conversas.length) {
+    historyList.innerHTML = `<p class="empty-state">Nenhuma conversa salva ainda.</p>`;
+    return;
+  }
+
+  const porDia = new Map();
+  conversas.forEach((c) => {
+    if (!porDia.has(c.data_dia)) porDia.set(c.data_dia, []);
+    porDia.get(c.data_dia).push(c);
+  });
+
+  historyList.innerHTML = Array.from(porDia.entries())
+    .map(([dia, itens]) => {
+      const botoes = itens
+        .map(
+          (c) => `
+          <div class="history-row">
+            <button type="button" class="history-item ${c.id === conversaAtualId ? "active" : ""}" data-conv-id="${c.id}">
+              <span class="history-item-title">${escapeHtml(c.titulo)}</span>
+              <span class="history-item-count num">${c.total_mensagens} msg</span>
+            </button>
+            <button type="button" class="history-del-btn" data-del-conv="${c.id}" aria-label="Excluir conversa" title="Excluir conversa">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>`
+        )
+        .join("");
+      return `
+        <div class="history-day-group">
+          <span class="history-day-label">${escapeHtml(formatarRotuloDia(dia))}</span>
+          ${botoes}
+        </div>`;
+    })
+    .join("");
+}
+
+async function abrirConversa(conversaId) {
+  conversaAtualId = conversaId;
+  const resp = await fetch(`/api/v1/conversas/${conversaId}/mensagens`);
+  if (!resp.ok) return;
+  const msgs = await resp.json();
+  chatFeed.innerHTML = "";
+  if (!msgs.length) {
+    renderEmptyChat();
+  } else {
+    msgs.forEach((m) => {
+      appendUserMessage(m.mensagem_usuario);
+      appendAssistantMessage({
+        resposta: m.resposta_assistente,
+        acoes: m.acoes || [],
+        usou_ia: false,
+        latencia_ms: m.latencia_ms,
+      });
+    });
+  }
+  historyBackdrop.classList.add("hidden");
+  irParaAba("chat");
+}
+
+function iniciarNovaConversa() {
+  conversaAtualId = null;
+  renderEmptyChat();
+  historyBackdrop.classList.add("hidden");
+  irParaAba("chat");
+  inboxInput.focus();
 }
 
 async function enviarMensagem(texto) {
@@ -85,10 +193,11 @@ async function enviarMensagem(texto) {
     const resp = await fetch("/api/v1/inbox", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mensagem: clean }),
+      body: JSON.stringify({ mensagem: clean, conversa_id: conversaAtualId }),
     });
     if (!resp.ok) throw new Error("Falha ao processar.");
     const data = await resp.json();
+    conversaAtualId = data.conversa_id;
     appendAssistantMessage(data);
     await carregarBriefing();
   } catch (err) {
@@ -103,6 +212,37 @@ async function enviarMensagem(texto) {
   }
 }
 
+function atualizarVisaoIA(conectado, modelos = [], modeloAtual = "") {
+  const connectedBox = document.getElementById("ia-connected-box");
+  const form = document.getElementById("gemini-config-form");
+  const cancelBtn = document.getElementById("ia-cancel-change-btn");
+  const activeModelEl = document.getElementById("cfg-ia-active-model");
+  const select = document.getElementById("gemini-model-select");
+  if (!connectedBox || !form || !select) return;
+
+  if (conectado) {
+    connectedBox.classList.remove("hidden");
+    form.classList.add("hidden");
+    cancelBtn.classList.remove("hidden");
+    if (activeModelEl) activeModelEl.textContent = modeloAtual || "—";
+
+    const lista = modelos.length ? modelos : modeloAtual ? [modeloAtual] : [];
+    select.innerHTML =
+      `<option value="" disabled>Selecione um modelo</option>` +
+      lista
+        .map(
+          (m) =>
+            `<option value="${escapeHtml(m)}" ${m === modeloAtual ? "selected" : ""}>${escapeHtml(m)}</option>`
+        )
+        .join("");
+  } else {
+    connectedBox.classList.add("hidden");
+    form.classList.remove("hidden");
+    cancelBtn.classList.add("hidden");
+    select.innerHTML = "";
+  }
+}
+
 async function carregarStatus() {
   try {
     const resp = await fetch("/api/v1/health");
@@ -111,21 +251,21 @@ async function carregarStatus() {
     const cfgGcal = document.getElementById("cfg-gcal-status");
     const cfgTz = document.getElementById("cfg-tz");
 
+    if (cfgIa) {
+      cfgIa.textContent = data.ia_ativa ? "CONECTADO" : "LOCAL";
+      cfgIa.className = `sync-badge ${data.ia_ativa ? "SINCRONIZADO" : "PENDENTE"}`;
+    }
     if (data.ia_ativa) {
-      engineStatus.textContent = "Gemini IA Ativo";
-      engineStatus.classList.add("ai-on");
-      if (cfgIa) {
-        cfgIa.textContent = "ATIVO";
-        cfgIa.className = "sync-badge SINCRONIZADO";
+      const modResp = await fetch("/api/v1/config/ia/modelos");
+      if (modResp.ok) {
+        const modData = await modResp.json();
+        atualizarVisaoIA(true, modData.modelos, modData.modelo_atual);
+      } else {
+        atualizarVisaoIA(true, [], data.modelo_ia);
       }
     } else {
-      engineStatus.textContent = "Modo Local · PWA";
-      if (cfgIa) {
-        cfgIa.textContent = "LOCAL";
-        cfgIa.className = "sync-badge PENDENTE";
-      }
+      atualizarVisaoIA(false);
     }
-
     if (cfgGcal) {
       cfgGcal.textContent = data.google_calendar_ativo ? "SINCRONIZADO" : "PENDENTE";
       cfgGcal.className = `sync-badge ${data.google_calendar_ativo ? "SINCRONIZADO" : "PENDENTE"}`;
@@ -134,7 +274,7 @@ async function carregarStatus() {
       cfgTz.textContent = data.timezone;
     }
   } catch {
-    engineStatus.textContent = "Offline";
+    // mantém estado padrão offline
   }
 }
 
@@ -272,8 +412,38 @@ inboxForm.addEventListener("submit", (e) => {
   enviarMensagem(inboxInput.value);
 });
 
-document.querySelectorAll(".prompt-chip").forEach((btn) => {
-  btn.addEventListener("click", () => enviarMensagem(btn.dataset.prompt || ""));
+// Histórico de conversas e Nova conversa
+document.getElementById("history-toggle-btn").addEventListener("click", async () => {
+  await carregarHistoricoConversas();
+  historyBackdrop.classList.remove("hidden");
+});
+document.getElementById("close-history-btn").addEventListener("click", () => {
+  historyBackdrop.classList.add("hidden");
+});
+historyBackdrop.addEventListener("click", (e) => {
+  if (e.target === historyBackdrop) historyBackdrop.classList.add("hidden");
+});
+document.getElementById("new-chat-btn").addEventListener("click", iniciarNovaConversa);
+document.getElementById("sheet-new-chat-btn").addEventListener("click", iniciarNovaConversa);
+historyList.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest("button[data-del-conv]");
+  if (delBtn) {
+    const id = Number(delBtn.dataset.delConv);
+    const resp = await fetch(`/api/v1/conversas/${id}`, { method: "DELETE" });
+    if (resp.ok) {
+      if (conversaAtualId === id) {
+        conversaAtualId = null;
+        renderEmptyChat();
+      }
+      await carregarHistoricoConversas();
+    }
+    return;
+  }
+
+  const btn = e.target.closest("button[data-conv-id]");
+  if (btn) {
+    abrirConversa(Number(btn.dataset.convId));
+  }
 });
 
 // Botões rápidos de Saúde
@@ -328,6 +498,100 @@ async function ativarNotificacoesCelular() {
 
 document.getElementById("enable-push-btn").addEventListener("click", ativarNotificacoesCelular);
 document.getElementById("cfg-enable-push-btn").addEventListener("click", ativarNotificacoesCelular);
+
+// Conectar / Trocar chave / Desconectar IA em Ajustes
+document.getElementById("ia-change-key-btn").addEventListener("click", () => {
+  document.getElementById("ia-connected-box").classList.add("hidden");
+  document.getElementById("gemini-config-form").classList.remove("hidden");
+  document.getElementById("gemini-config-feedback").classList.add("hidden");
+  document.getElementById("gemini-key-input").focus();
+});
+
+document.getElementById("ia-cancel-change-btn").addEventListener("click", () => {
+  document.getElementById("gemini-config-form").classList.add("hidden");
+  document.getElementById("ia-connected-box").classList.remove("hidden");
+});
+
+document.getElementById("gemini-config-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const keyInput = document.getElementById("gemini-key-input");
+  const connectBtn = document.getElementById("gemini-connect-btn");
+  const feedback = document.getElementById("gemini-config-feedback");
+
+  const apiKey = keyInput.value.trim();
+  if (!apiKey) {
+    feedback.textContent = "Cole sua chave API para conectar.";
+    feedback.className = "form-feedback error";
+    return;
+  }
+
+  connectBtn.disabled = true;
+  connectBtn.textContent = "Validando...";
+  feedback.classList.add("hidden");
+
+  try {
+    const resp = await fetch("/api/v1/config/ia", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      feedback.textContent = data.detail || "Chave inválida. Verifique e tente novamente.";
+      feedback.className = "form-feedback error";
+      return;
+    }
+
+    keyInput.value = "";
+    atualizarVisaoIA(true, data.modelos_disponiveis, data.modelo);
+    const connFeedback = document.getElementById("ia-connected-feedback");
+    connFeedback.textContent = `Conectado! ${data.modelos_disponiveis.length} modelos disponíveis.`;
+    connFeedback.className = "form-feedback";
+    setTimeout(() => connFeedback.classList.add("hidden"), 3500);
+    await carregarStatus();
+  } catch {
+    feedback.textContent = "Erro de conexão ao validar a chave.";
+    feedback.className = "form-feedback error";
+  } finally {
+    connectBtn.disabled = false;
+    connectBtn.textContent = "Conectar";
+  }
+});
+
+document.getElementById("gemini-model-select").addEventListener("change", async (e) => {
+  const feedback = document.getElementById("ia-connected-feedback");
+  const activeModelEl = document.getElementById("cfg-ia-active-model");
+  const model = e.target.value;
+  if (!model) return;
+  const resp = await fetch("/api/v1/config/ia/modelo", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+  if (resp.ok) {
+    if (activeModelEl) activeModelEl.textContent = model;
+    feedback.textContent = `Modelo ativo alterado para ${model}.`;
+    feedback.className = "form-feedback";
+    setTimeout(() => feedback.classList.add("hidden"), 3000);
+  }
+});
+
+document.getElementById("gemini-disconnect-btn").addEventListener("click", async () => {
+  const feedback = document.getElementById("gemini-config-feedback");
+  const resp = await fetch("/api/v1/config/ia", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: "" }),
+  });
+  if (resp.ok) {
+    atualizarVisaoIA(false);
+    feedback.textContent = "Desconectado. Voltando para o modo local.";
+    feedback.className = "form-feedback";
+    await carregarStatus();
+    setTimeout(() => feedback.classList.add("hidden"), 3000);
+  }
+});
 
 // Salvar meta de água nas Configurações
 document.getElementById("water-goal-form").addEventListener("submit", async (e) => {

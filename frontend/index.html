@@ -33,14 +33,26 @@
           <path d="m16.24 7.76 2.83-2.83"></path>
         </svg>
         <div class="header-titles">
-          <h1 id="screen-title">Chat</h1>
-          <span class="header-sub" id="engine-status">Carregando...</span>
+          <h1>Synapse</h1>
         </div>
       </div>
 
       <div class="header-actions">
-        <button type="button" class="icon-btn" id="notif-toggle-btn" aria-label="Notificações">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <button type="button" class="icon-btn" id="history-toggle-btn" aria-label="Histórico de conversas" title="Histórico por dia">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+            <path d="M3 3v5h5"></path>
+            <path d="M12 7v5l4 2"></path>
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="new-chat-btn" aria-label="Nova conversa" title="Nova conversa">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="notif-toggle-btn" aria-label="Notificações" title="Notificações">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path>
             <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>
           </svg>
@@ -112,23 +124,9 @@
       <!-- ABA 3 (CENTRO): CHAT CONVERSACIONAL -->
       <section class="screen active" id="screen-chat" data-title="Chat">
         <div class="chat-feed" id="chat-feed" aria-live="polite">
-          <div class="intro-block">
-            <h2>Mande qualquer coisa</h2>
-            <p>Gastos, compromissos, tarefas, água ou treino — tudo em uma frase.</p>
-            <div class="quick-prompts">
-              <button type="button" class="prompt-chip" data-prompt="Gastei 38,50 no almoço, bebi 500ml de água e marca revisão amanhã às 19h">
-                Almoço + Água + Agenda
-              </button>
-              <button type="button" class="prompt-chip" data-prompt="Bebi 500ml de água">
-                +500ml água
-              </button>
-              <button type="button" class="prompt-chip" data-prompt="Fiz o treino hoje e almocei">
-                Treino e almoço
-              </button>
-              <button type="button" class="prompt-chip" data-prompt="Me lembra de revisar o currículo da Blip hoje">
-                Tarefa urgente
-              </button>
-            </div>
+          <div class="empty-chat" id="empty-chat">
+            <h2>Como posso organizar seu dia?</h2>
+            <p>Envie gastos, compromissos, tarefas ou registros de saúde em linguagem natural.</p>
           </div>
         </div>
 
@@ -222,16 +220,50 @@
 
         <div class="list-section">
           <div class="section-row">
+            <h3>Inteligência Artificial</h3>
+            <span class="sync-badge PENDENTE" id="cfg-ia-status">LOCAL</span>
+          </div>
+
+          <!-- Estado Conectado -->
+          <div id="ia-connected-box" class="config-form hidden">
+            <div class="field-row">
+              <span>Serviço</span>
+              <strong id="cfg-ia-provider">Google Gemini</strong>
+            </div>
+            <div class="field-row">
+              <span>Modelo ativo</span>
+              <strong class="num" id="cfg-ia-active-model">—</strong>
+            </div>
+            <div class="field-col">
+              <label for="gemini-model-select">Trocar modelo</label>
+              <select id="gemini-model-select"></select>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="btn-utility full-w" id="ia-change-key-btn">Trocar chave</button>
+              <button type="button" class="btn-utility full-w" id="gemini-disconnect-btn">Desconectar</button>
+            </div>
+            <p class="form-feedback hidden" id="ia-connected-feedback"></p>
+          </div>
+
+          <!-- Estado Desconectado / Trocar Chave -->
+          <form id="gemini-config-form" class="config-form">
+            <div class="field-col">
+              <label for="gemini-key-input">Chave API</label>
+              <input type="password" id="gemini-key-input" placeholder="Cole sua chave API aqui..." autocomplete="off" />
+            </div>
+            <div class="btn-row">
+              <button type="submit" class="btn-primary-full" id="gemini-connect-btn">Conectar</button>
+              <button type="button" class="btn-utility hidden" id="ia-cancel-change-btn">Cancelar</button>
+            </div>
+            <p class="form-feedback hidden" id="gemini-config-feedback"></p>
+          </form>
+        </div>
+
+        <div class="list-section">
+          <div class="section-row">
             <h3>Integrações e Motor</h3>
           </div>
           <div class="stack-xs">
-            <div class="row-card">
-              <div>
-                <p class="row-title">Motor de IA (Gemini)</p>
-                <p class="row-sub">Function Calling multi-domínio</p>
-              </div>
-              <span class="sync-badge PENDENTE" id="cfg-ia-status">Local</span>
-            </div>
             <div class="row-card">
               <div>
                 <p class="row-title">Google Calendar</p>
@@ -304,6 +336,19 @@
         <span>Ajustes</span>
       </button>
     </nav>
+
+    <!-- Bottom Sheet de Histórico de Conversas (Agrupado por Dia) -->
+    <div class="sheet-backdrop hidden" id="history-sheet-backdrop">
+      <div class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="history-sheet-title">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <h3 id="history-sheet-title">Conversas</h3>
+          <button type="button" class="link-action" id="close-history-btn">Fechar</button>
+        </div>
+        <button type="button" class="btn-primary-full" id="sheet-new-chat-btn">Iniciar nova conversa</button>
+        <div id="history-list" class="stack-sm sheet-list"></div>
+      </div>
+    </div>
 
     <!-- Bottom Sheet de Notificações -->
     <div class="sheet-backdrop hidden" id="notif-sheet-backdrop">
