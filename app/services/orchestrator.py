@@ -549,6 +549,10 @@ class SynapseOrchestrator:
 
         agora = self.settings.now_local()
         cats = ", ".join(c["nome"] for c in self.financas.listar_categorias())
+        habitos_ativos = ", ".join(
+            f"{h['nome']} (meta={h['meta_diaria']:g} {h['unidade']})"
+            for h in self.saude.progresso_diario()
+        ) or "Agua, Treino, Almoco"
 
         # Contexto vivo dos itens atuais (para editar, concluir ou cancelar pelo prompt)
         tarefas_pend = self.tarefas.listar_tarefas("PENDENTE")[:15]
@@ -583,6 +587,7 @@ class SynapseOrchestrator:
             "Você é o Synapse, um assistente pessoal orquestrador em português do Brasil. "
             f"Data e hora atual no fuso {self.settings.timezone_name}: {agora.isoformat(timespec='seconds')}. "
             f"Categorias financeiras cadastradas: {cats}. "
+            f"\nHábitos de saúde cadastrados: {habitos_ativos}. "
             f"\nTarefas pendentes atuais: {resumo_tarefas}. "
             f"\nCompromissos atuais na agenda: {resumo_eventos}. "
             f"\nÚltimos lançamentos financeiros: {resumo_trans}. "

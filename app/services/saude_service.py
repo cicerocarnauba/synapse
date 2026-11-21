@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 import unicodedata
 from typing import Any
 
@@ -188,3 +189,57 @@ class SaudeService:
                     }
                 )
             return resultado
+
+    def resumo_semanal(self) -> dict[str, Any]:
+        """Calcula score de hoje e consistência dos últimos 7 dias via SQL."""
+        hoje_dt = self.settings.now_local().date()
+        hoje_iso = hoje_dt.isoformat()
+        progresso_hoje = self.progresso_diario(data_iso=hoje_iso)
+
+        total_habitos = len(progresso_hoje)
+        metas_batidas = sum(1 for h in progresso_hoje if h["concluido"])
+        score_hoje = (
+            round(sum(h["percentual"] for h in progresso_hoje) / total_habitos)
+            if total_habitos > 0
+            else 0
+        )
+
+        dias_7: list[dict[str, Any]] = []
+        letras_semana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+        with self.db.connect() as conn:
+            for offset in range(6, -1, -1):
+                d = hoje_dt - timedelta(days=offset)
+                d_iso = d.isoformat()
+                row = conn.execute(
+                    """
+                    SELECT COUNT(*) AS qtd_checkins, COUNT(DISTINCT habito_id) AS habitos_ativos
+                    FROM checkins_saude
+                    WHERE registrado_em LIKE ?
+                    """,
+                    (f"{d_iso}%",),
+                ).fetchone()
+                dias_7.append(
+                    {
+                        "data": d_iso,
+                        "label": letras_semana[d.weekday()],
+                        "eh_hoje": offset == 0,
+                        "qtd_checkins": int(row["qtd_checkins"]),
+                        "habitos_ativos": int(row["habitos_ativos"]),
+                    }
+                )
+
+        # Calcula sequência atual (dias consecutivos com pelo menos 1 check-in)
+        streak = 0
+        for item in reversed(dias_7):
+            if item["qtd_checkins"] > 0:
+                streak += 1
+            elif not item["eh_hoje"]:
+                break
+
+        return {
+            "score_hoje": score_hoje,
+            "metas_batidas": metas_batidas,
+            "total_habitos": total_habitos,
+            "streak_dias": streak,
+            "ultimos_7_dias": dias_7,
+        }

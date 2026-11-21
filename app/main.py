@@ -244,6 +244,10 @@ def create_app(db_path: str | None = None, settings: Settings | None = None) -> 
     def saude_hoje(data: str | None = None) -> list[dict[str, Any]]:
         return saude_service.progresso_diario(data_iso=data)
 
+    @app.get("/api/v1/saude/resumo-semanal")
+    def saude_resumo_semanal() -> dict[str, Any]:
+        return saude_service.resumo_semanal()
+
     @app.post("/api/v1/saude/habitos", status_code=201)
     def configurar_habito(payload: HabitoCreate) -> dict[str, Any]:
         return saude_service.criar_ou_atualizar_habito(payload)
