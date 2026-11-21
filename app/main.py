@@ -14,8 +14,10 @@ from app.adapters.notifier import NotificationAdapter
 from app.config import Settings, get_settings
 from app.database import Database
 from app.schemas import (
+    CategoriaFinanceiraCreate,
     CheckinSaudeCreate,
     EventoCreate,
+    EventoUpdate,
     GeminiConfigRequest,
     HabitoCreate,
     InboxRequest,
@@ -23,7 +25,9 @@ from app.schemas import (
     ModelSelectRequest,
     NotificacaoCreate,
     TarefaCreate,
+    TarefaUpdate,
     TransacaoCreate,
+    TransacaoUpdate,
 )
 from app.services.agenda_service import AgendaService
 from app.services.briefing_service import BriefingService
@@ -140,12 +144,49 @@ def create_app(db_path: str | None = None, settings: Settings | None = None) -> 
         return financas_service.resumo_periodo(mes_prefixo=mes)
 
     @app.get("/api/v1/financas/transacoes")
-    def listar_transacoes(limite: int = 20) -> list[dict[str, Any]]:
-        return financas_service.listar_transacoes(limite=limite)
+    def listar_transacoes(
+        limite: int = 40,
+        mes: str | None = None,
+        tipo: str | None = None,
+        categoria: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return financas_service.listar_transacoes(
+            limite=limite, mes_prefixo=mes, tipo=tipo, categoria=categoria
+        )
 
     @app.post("/api/v1/financas/transacoes", status_code=201)
     def criar_transacao(payload: TransacaoCreate) -> dict[str, Any]:
         return financas_service.registrar_transacao(payload)
+
+    @app.patch("/api/v1/financas/transacoes/{transacao_id}")
+    def atualizar_transacao(transacao_id: int, payload: TransacaoUpdate) -> dict[str, Any]:
+        atualizada = financas_service.atualizar_transacao(transacao_id, payload)
+        if not atualizada:
+            raise HTTPException(status_code=404, detail="Transação não encontrada.")
+        return atualizada
+
+    @app.delete("/api/v1/financas/transacoes/{transacao_id}")
+    def excluir_transacao(transacao_id: int) -> dict[str, Any]:
+        if not financas_service.excluir_transacao(transacao_id):
+            raise HTTPException(status_code=404, detail="Transação não encontrada.")
+        return {"excluida": True, "id": transacao_id}
+
+    @app.get("/api/v1/financas/categorias")
+    def listar_categorias() -> list[dict[str, Any]]:
+        return financas_service.listar_categorias()
+
+    @app.post("/api/v1/financas/categorias", status_code=201)
+    def criar_categoria(payload: CategoriaFinanceiraCreate) -> dict[str, Any]:
+        return financas_service.criar_categoria(payload)
+
+    @app.delete("/api/v1/financas/categorias/{categoria_id}")
+    def excluir_categoria(categoria_id: int) -> dict[str, Any]:
+        if not financas_service.excluir_categoria(categoria_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Categoria padrão não pode ser excluída ou não foi encontrada.",
+            )
+        return {"excluida": True, "id": categoria_id}
 
     # --- Tarefas ---
     @app.get("/api/v1/tarefas")
@@ -156,12 +197,25 @@ def create_app(db_path: str | None = None, settings: Settings | None = None) -> 
     def criar_tarefa(payload: TarefaCreate) -> dict[str, Any]:
         return tarefas_service.criar_tarefa(payload)
 
+    @app.patch("/api/v1/tarefas/{tarefa_id}")
+    def atualizar_tarefa(tarefa_id: int, payload: TarefaUpdate) -> dict[str, Any]:
+        atualizada = tarefas_service.atualizar_tarefa(tarefa_id, payload)
+        if not atualizada:
+            raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
+        return atualizada
+
     @app.patch("/api/v1/tarefas/{tarefa_id}/concluir")
     def concluir_tarefa(tarefa_id: int) -> dict[str, Any]:
         atualizada = tarefas_service.concluir_tarefa(tarefa_id)
         if not atualizada:
             raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
         return atualizada
+
+    @app.delete("/api/v1/tarefas/{tarefa_id}")
+    def excluir_tarefa(tarefa_id: int) -> dict[str, Any]:
+        if not tarefas_service.excluir_tarefa(tarefa_id):
+            raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
+        return {"excluida": True, "id": tarefa_id}
 
     # --- Agenda ---
     @app.get("/api/v1/agenda")
@@ -172,6 +226,19 @@ def create_app(db_path: str | None = None, settings: Settings | None = None) -> 
     def criar_evento(payload: EventoCreate) -> dict[str, Any]:
         return agenda_service.agendar_evento(payload)
 
+    @app.patch("/api/v1/agenda/{evento_id}")
+    def atualizar_evento(evento_id: int, payload: EventoUpdate) -> dict[str, Any]:
+        atualizado = agenda_service.atualizar_evento(evento_id, payload)
+        if not atualizado:
+            raise HTTPException(status_code=404, detail="Evento não encontrado.")
+        return atualizado
+
+    @app.delete("/api/v1/agenda/{evento_id}")
+    def excluir_evento(evento_id: int) -> dict[str, Any]:
+        if not agenda_service.excluir_evento(evento_id):
+            raise HTTPException(status_code=404, detail="Evento não encontrado.")
+        return {"excluido": True, "id": evento_id}
+
     # --- Saúde & Hábitos ---
     @app.get("/api/v1/saude/hoje")
     def saude_hoje(data: str | None = None) -> list[dict[str, Any]]:
@@ -181,9 +248,25 @@ def create_app(db_path: str | None = None, settings: Settings | None = None) -> 
     def configurar_habito(payload: HabitoCreate) -> dict[str, Any]:
         return saude_service.criar_ou_atualizar_habito(payload)
 
+    @app.delete("/api/v1/saude/habitos/{habito_id}")
+    def excluir_habito(habito_id: int) -> dict[str, Any]:
+        if not saude_service.excluir_habito(habito_id):
+            raise HTTPException(status_code=404, detail="Hábito não encontrado.")
+        return {"excluido": True, "id": habito_id}
+
+    @app.get("/api/v1/saude/checkins")
+    def listar_checkins(data: str | None = None) -> list[dict[str, Any]]:
+        return saude_service.listar_checkins_dia(data_iso=data)
+
     @app.post("/api/v1/saude/checkins", status_code=201)
     def registrar_checkin(payload: CheckinSaudeCreate) -> dict[str, Any]:
         return saude_service.registrar_checkin(payload)
+
+    @app.delete("/api/v1/saude/checkins/{checkin_id}")
+    def excluir_checkin(checkin_id: int) -> dict[str, Any]:
+        if not saude_service.excluir_checkin(checkin_id):
+            raise HTTPException(status_code=404, detail="Check-in não encontrado.")
+        return {"excluido": True, "id": checkin_id}
 
     # --- Notificações ---
     @app.get("/api/v1/notificacoes/pendentes")

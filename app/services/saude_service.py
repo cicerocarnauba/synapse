@@ -1,4 +1,4 @@
-"""Serviço do módulo Saúde & Hábitos (RF05): água, treino, refeições."""
+"""Serviço do módulo Saúde & Hábitos (RF05): metas personalizáveis, check-ins e histórico."""
 
 from __future__ import annotations
 
@@ -67,6 +67,11 @@ class SaudeService:
             )
         return habito
 
+    def excluir_habito(self, habito_id: int) -> bool:
+        with self.db.connect() as conn:
+            cursor = conn.execute("DELETE FROM habitos_saude WHERE id = ?", (habito_id,))
+            return cursor.rowcount > 0
+
     def registrar_checkin(self, payload: CheckinSaudeCreate) -> dict[str, Any]:
         alvo = _normalizar(payload.nome_habito)
         agora_iso = self.settings.now_local().isoformat(timespec="seconds")
@@ -93,10 +98,16 @@ class SaudeService:
 
             cursor = conn.execute(
                 """
-                INSERT INTO checkins_saude (habito_id, quantidade, observacao, registrado_em)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO checkins_saude (habito_id, quantidade, observacao, conversa_id, registrado_em)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (habito_escolhido["id"], payload.quantidade, payload.observacao.strip(), agora_iso),
+                (
+                    habito_escolhido["id"],
+                    payload.quantidade,
+                    payload.observacao.strip(),
+                    payload.conversa_id,
+                    agora_iso,
+                ),
             )
             checkin = conn.execute("SELECT * FROM checkins_saude WHERE id = ?", (cursor.lastrowid,)).fetchone()
 
@@ -107,6 +118,35 @@ class SaudeService:
             "habito": habito_escolhido["nome"],
             "progresso_atual": atual,
         }
+
+    def listar_checkins_dia(self, data_iso: str | None = None) -> list[dict[str, Any]]:
+        dia = data_iso or self.settings.now_local().date().isoformat()
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.id,
+                    c.habito_id,
+                    h.nome AS habito_nome,
+                    h.unidade,
+                    c.quantidade,
+                    c.observacao,
+                    c.conversa_id,
+                    c.registrado_em
+                FROM checkins_saude c
+                JOIN habitos_saude h ON h.id = c.habito_id
+                WHERE c.registrado_em LIKE ?
+                ORDER BY c.id DESC
+                LIMIT 30
+                """,
+                (f"{dia}%",),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def excluir_checkin(self, checkin_id: int) -> bool:
+        with self.db.connect() as conn:
+            cursor = conn.execute("DELETE FROM checkins_saude WHERE id = ?", (checkin_id,))
+            return cursor.rowcount > 0
 
     def progresso_diario(self, data_iso: str | None = None) -> list[dict[str, Any]]:
         dia = data_iso or self.settings.now_local().date().isoformat()

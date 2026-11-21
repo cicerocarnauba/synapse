@@ -1,4 +1,4 @@
-"""Serviço do módulo Agenda & Google Calendar (RF04 + RN04)."""
+"""Serviço do módulo Agenda & Google Calendar (RF04 + RN04): CRUD completo."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 from app.adapters.google_calendar import GoogleCalendarAdapter
 from app.config import Settings, get_settings
 from app.database import Database
-from app.schemas import EventoCreate, NotificacaoCreate, OrigemNotificacao
+from app.schemas import EventoCreate, EventoUpdate, NotificacaoCreate, OrigemNotificacao
 from app.services.notificacoes_service import NotificacoesService
 
 
@@ -35,8 +35,8 @@ class AgendaService:
         with self.db.connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO eventos_agenda (titulo, descricao, inicio, fim, google_event_id, sync_status)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO eventos_agenda (titulo, descricao, inicio, fim, google_event_id, sync_status, conversa_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload.titulo.strip(),
@@ -45,6 +45,7 @@ class AgendaService:
                     payload.fim,
                     sync.google_event_id,
                     sync.sync_status,
+                    payload.conversa_id,
                 ),
             )
             row = conn.execute("SELECT * FROM eventos_agenda WHERE id = ?", (cursor.lastrowid,)).fetchone()
@@ -63,6 +64,33 @@ class AgendaService:
         evento["sync_detalhe"] = sync.detalhe
         return evento
 
+    def atualizar_evento(self, evento_id: int, payload: EventoUpdate) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            atual = conn.execute("SELECT * FROM eventos_agenda WHERE id = ?", (evento_id,)).fetchone()
+            if not atual:
+                return None
+
+            novo_titulo = payload.titulo.strip() if payload.titulo is not None else atual["titulo"]
+            novo_inicio = payload.inicio if payload.inicio is not None else atual["inicio"]
+            novo_fim = payload.fim if payload.fim is not None else atual["fim"]
+            nova_desc = payload.descricao.strip() if payload.descricao is not None else atual["descricao"]
+
+            conn.execute(
+                """
+                UPDATE eventos_agenda
+                SET titulo = ?, inicio = ?, fim = ?, descricao = ?
+                WHERE id = ?
+                """,
+                (novo_titulo, novo_inicio, novo_fim, nova_desc, evento_id),
+            )
+            row = conn.execute("SELECT * FROM eventos_agenda WHERE id = ?", (evento_id,)).fetchone()
+            return dict(row)
+
+    def excluir_evento(self, evento_id: int) -> bool:
+        with self.db.connect() as conn:
+            cursor = conn.execute("DELETE FROM eventos_agenda WHERE id = ?", (evento_id,))
+            return cursor.rowcount > 0
+
     def listar_eventos(self, data_filtro: str | None = None) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             if data_filtro:
@@ -79,7 +107,7 @@ class AgendaService:
                     """
                     SELECT * FROM eventos_agenda
                     ORDER BY inicio ASC
-                    LIMIT 30
+                    LIMIT 40
                     """
                 ).fetchall()
             return [dict(r) for r in rows]

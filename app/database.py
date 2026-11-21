@@ -9,13 +9,21 @@ from typing import Iterator
 from app.config import get_settings
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS categorias_financeiras (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome VARCHAR(40) NOT NULL UNIQUE,
+    cor VARCHAR(20) NOT NULL DEFAULT '#615d59',
+    padrao BOOLEAN NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS transacoes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tipo VARCHAR(15) NOT NULL CHECK (tipo IN ('DESPESA', 'RECEITA')),
     valor REAL NOT NULL CHECK (valor > 0),
-    categoria VARCHAR(30) NOT NULL,
+    categoria VARCHAR(40) NOT NULL,
     descricao VARCHAR(200) NOT NULL,
     data_transacao DATE NOT NULL,
+    conversa_id INTEGER NULL REFERENCES conversas(id) ON DELETE SET NULL,
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -25,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tarefas (
     prioridade VARCHAR(10) NOT NULL DEFAULT 'MEDIA' CHECK (prioridade IN ('BAIXA', 'MEDIA', 'ALTA')),
     status VARCHAR(15) NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE', 'CONCLUIDA')),
     prazo TIMESTAMP NULL,
+    conversa_id INTEGER NULL REFERENCES conversas(id) ON DELETE SET NULL,
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -37,6 +46,7 @@ CREATE TABLE IF NOT EXISTS eventos_agenda (
     google_event_id VARCHAR(120) NULL,
     sync_status VARCHAR(20) NOT NULL DEFAULT 'PENDENTE'
         CHECK (sync_status IN ('SINCRONIZADO', 'PENDENTE', 'LOCAL_ONLY')),
+    conversa_id INTEGER NULL REFERENCES conversas(id) ON DELETE SET NULL,
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -54,6 +64,7 @@ CREATE TABLE IF NOT EXISTS checkins_saude (
     habito_id INTEGER NOT NULL REFERENCES habitos_saude(id) ON DELETE CASCADE,
     quantidade REAL NOT NULL CHECK (quantidade > 0),
     observacao VARCHAR(200) NOT NULL DEFAULT '',
+    conversa_id INTEGER NULL REFERENCES conversas(id) ON DELETE SET NULL,
     registrado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -100,6 +111,17 @@ DEFAULT_HABITS = [
     ("Almoco", 1.0, "refeicao", "12:30"),
 ]
 
+DEFAULT_CATEGORIES = [
+    ("ALIMENTACAO", "#dd5b00"),
+    ("TRANSPORTE", "#0075de"),
+    ("MORADIA", "#523410"),
+    ("SAUDE", "#2a9d99"),
+    ("LAZER", "#d63384"),
+    ("ESTUDOS", "#391c57"),
+    ("SALARIO", "#1aae39"),
+    ("OUTROS", "#615d59"),
+]
+
 
 class Database:
     """Wrapper leve sobre sqlite3 para facilitar injeção de dependência e testes isolados."""
@@ -124,10 +146,21 @@ class Database:
     def init_db(self, seed_default_habits: bool = True) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
-            # Migração leve para bancos existentes sem a coluna conversa_id
-            cols = {row["name"] for row in conn.execute("PRAGMA table_info(historico_interacoes)").fetchall()}
-            if "conversa_id" not in cols:
-                conn.execute("ALTER TABLE historico_interacoes ADD COLUMN conversa_id INTEGER NULL")
+            # Migrações leves para bancos já existentes
+            for tabela in ("historico_interacoes", "transacoes", "tarefas", "eventos_agenda", "checkins_saude"):
+                cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({tabela})").fetchall()}
+                if "conversa_id" not in cols:
+                    conn.execute(f"ALTER TABLE {tabela} ADD COLUMN conversa_id INTEGER NULL")
+
+            for nome, cor in DEFAULT_CATEGORIES:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO categorias_financeiras (nome, cor, padrao)
+                    VALUES (?, ?, 1)
+                    """,
+                    (nome, cor),
+                )
+
             if seed_default_habits:
                 for nome, meta, unidade, horario in DEFAULT_HABITS:
                     conn.execute(

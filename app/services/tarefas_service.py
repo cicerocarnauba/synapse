@@ -1,11 +1,11 @@
-"""Serviço do módulo Tarefas Rápidas (RF03)."""
+"""Serviço do módulo Tarefas Rápidas (RF03): CRUD completo + rastreabilidade de conversa."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from app.database import Database
-from app.schemas import TarefaCreate
+from app.schemas import TarefaCreate, TarefaUpdate
 
 
 class TarefasService:
@@ -16,10 +16,10 @@ class TarefasService:
         with self.db.connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO tarefas (titulo, prioridade, status, prazo)
-                VALUES (?, ?, 'PENDENTE', ?)
+                INSERT INTO tarefas (titulo, prioridade, status, prazo, conversa_id)
+                VALUES (?, ?, 'PENDENTE', ?, ?)
                 """,
-                (payload.titulo.strip(), payload.prioridade.value, payload.prazo),
+                (payload.titulo.strip(), payload.prioridade.value, payload.prazo, payload.conversa_id),
             )
             row = conn.execute("SELECT * FROM tarefas WHERE id = ?", (cursor.lastrowid,)).fetchone()
             return dict(row)
@@ -43,6 +43,30 @@ class TarefasService:
             rows = conn.execute(query.format(where_clause=where_clause), params).fetchall()
             return [dict(r) for r in rows]
 
+    def atualizar_tarefa(self, tarefa_id: int, payload: TarefaUpdate) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            atual = conn.execute("SELECT * FROM tarefas WHERE id = ?", (tarefa_id,)).fetchone()
+            if not atual:
+                return None
+
+            novo_titulo = payload.titulo.strip() if payload.titulo is not None else atual["titulo"]
+            nova_prio = payload.prioridade.value if payload.prioridade is not None else atual["prioridade"]
+            novo_status = payload.status.value if payload.status is not None else atual["status"]
+            novo_prazo = payload.prazo if payload.prazo is not None else atual["prazo"]
+            if novo_prazo == "":
+                novo_prazo = None
+
+            conn.execute(
+                """
+                UPDATE tarefas
+                SET titulo = ?, prioridade = ?, status = ?, prazo = ?
+                WHERE id = ?
+                """,
+                (novo_titulo, nova_prio, novo_status, novo_prazo, tarefa_id),
+            )
+            row = conn.execute("SELECT * FROM tarefas WHERE id = ?", (tarefa_id,)).fetchone()
+            return dict(row)
+
     def concluir_tarefa(self, tarefa_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             cursor = conn.execute(
@@ -53,3 +77,8 @@ class TarefasService:
                 return None
             row = conn.execute("SELECT * FROM tarefas WHERE id = ?", (tarefa_id,)).fetchone()
             return dict(row)
+
+    def excluir_tarefa(self, tarefa_id: int) -> bool:
+        with self.db.connect() as conn:
+            cursor = conn.execute("DELETE FROM tarefas WHERE id = ?", (tarefa_id,))
+            return cursor.rowcount > 0

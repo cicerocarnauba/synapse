@@ -157,3 +157,67 @@ def test_saudacao_nao_cria_tarefa_nem_suja_banco(tmp_path: Path) -> None:
     assert client.get("/api/v1/tarefas").json() == []
 
 
+def test_financas_categorias_personalizadas_edicao_exclusao_e_origem_chat(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    # Cria categoria customizada
+    cat = client.post("/api/v1/financas/categorias", json={"nome": "Academia", "cor": "#2a9d99"})
+    assert cat.status_code == 201
+    assert cat.json()["nome"] == "ACADEMIA"
+
+    # Registra gasto pelo chat e valida vínculo com conversa_id
+    inbox = client.post("/api/v1/inbox", json={"mensagem": "Gastei 89,90 na academia"}).json()
+    cid = inbox["conversa_id"]
+    txs = client.get("/api/v1/financas/transacoes").json()
+    assert len(txs) == 1
+    assert txs[0]["conversa_id"] == cid
+
+    # Edita manualmente o lançamento (valor e categoria)
+    tx_id = txs[0]["id"]
+    upd = client.patch(
+        f"/api/v1/financas/transacoes/{tx_id}",
+        json={"valor": 99.9, "categoria": "ACADEMIA", "descricao": "Mensalidade Academia"},
+    )
+    assert upd.status_code == 200
+    assert upd.json()["valor"] == 99.9
+    assert upd.json()["categoria"] == "ACADEMIA"
+
+    # Exclui o lançamento
+    assert client.delete(f"/api/v1/financas/transacoes/{tx_id}").status_code == 200
+    assert client.get("/api/v1/financas/transacoes").json() == []
+
+
+def test_crud_agenda_tarefas_e_checkins_saude_com_rastreabilidade(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+
+    # 1. Tarefa via chat -> editar -> excluir
+    r_task = client.post("/api/v1/inbox", json={"mensagem": "Me lembra de revisar SQL hoje"}).json()
+    tasks = client.get("/api/v1/tarefas").json()
+    assert tasks[0]["conversa_id"] == r_task["conversa_id"]
+    tid = tasks[0]["id"]
+    upd_t = client.patch(f"/api/v1/tarefas/{tid}", json={"titulo": "Revisar SQL Avançado", "prioridade": "BAIXA"})
+    assert upd_t.status_code == 200
+    assert upd_t.json()["titulo"] == "Revisar SQL Avançado"
+    assert client.delete(f"/api/v1/tarefas/{tid}").status_code == 200
+
+    # 2. Evento via chat -> editar -> excluir
+    r_ev = client.post("/api/v1/inbox", json={"mensagem": "Marca revisão amanhã às 15h"}).json()
+    evs = client.get("/api/v1/agenda").json()
+    assert evs[0]["conversa_id"] == r_ev["conversa_id"]
+    eid = evs[0]["id"]
+    upd_e = client.patch(f"/api/v1/agenda/{eid}", json={"titulo": "Revisão Final"})
+    assert upd_e.status_code == 200
+    assert upd_e.json()["titulo"] == "Revisão Final"
+    assert client.delete(f"/api/v1/agenda/{eid}").status_code == 200
+
+    # 3. Check-in saúde via chat -> listar -> desfazer
+    r_s = client.post("/api/v1/inbox", json={"mensagem": "Bebi 300ml de água"}).json()
+    checkins = client.get("/api/v1/saude/checkins").json()
+    assert len(checkins) == 1
+    assert checkins[0]["conversa_id"] == r_s["conversa_id"]
+    assert client.delete(f"/api/v1/saude/checkins/{checkins[0]['id']}").status_code == 200
+    assert client.get("/api/v1/saude/checkins").json() == []
+
+
+
+
